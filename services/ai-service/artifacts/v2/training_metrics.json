@@ -1,0 +1,8 @@
+{
+  "final_epoch": 60,
+  "final_val_loss": 2.2085908884392644,
+  "final_val_acc": 0.6174812030075187,
+  "total_epochs_trained": 60,
+  "model_file": "safe_alert_1h_FINAL.pt",
+  "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+}

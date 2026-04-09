@@ -1,0 +1,388 @@
+/* SAFE-Alert Panel Styles */
+
+.safe-alert-panel {
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  max-height: 800px;
+  overflow-y: auto;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.safe-alert-panel.loading,
+.safe-alert-panel.error,
+.safe-alert-panel.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  text-align: center;
+  color: #6b7280;
+}
+
+/* Header */
+.panel-header {
+  margin-bottom: 16px;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 12px;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.timestamp {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+
+/* Prediction Box */
+.prediction-box {
+  margin-bottom: 16px;
+  padding: 14px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.prediction-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+}
+
+.prediction-icon {
+  font-size: 32px;
+}
+
+.prediction-content {
+  flex: 1;
+}
+
+.prediction-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.prediction-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* Secondary Box (4h prediction) */
+.secondary-box {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  border-left: 3px solid #6b7280;
+}
+
+.secondary-label {
+  font-size: 13px;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.secondary-confidence {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Confidence */
+.metric-section {
+  margin-bottom: 16px;
+}
+
+.metric-label {
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: #374151;
+}
+
+.confidence-bar {
+  width: 100%;
+  height: 24px;
+  background: #f3f4f6;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: white;
+  font-weight: 600;
+}
+
+/* Alert Box */
+.alert-box {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+.alert-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.alert-value {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* Articles Section */
+.articles-section {
+  margin: 16px 0;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.articles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.article-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: white;
+  border-radius: 4px;
+  border-left: 3px solid #3b82f6;
+}
+
+.article-number {
+  min-width: 24px;
+  height: 24px;
+  background: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.article-content {
+  flex: 1;
+}
+
+.article-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.article-source {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+
+.article-link {
+  font-size: 11px;
+  color: #3b82f6;
+  text-decoration: none;
+}
+
+.article-link:hover {
+  text-decoration: underline;
+}
+
+/* Metrics Grid */
+.metrics-section {
+  margin: 16px 0;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.metric {
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.metric-key {
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.metric-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.metric-desc {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+/* Faithfulness Note */
+.faithfulness-note {
+  margin: 16px 0;
+  padding: 12px;
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  display: flex;
+  gap: 10px;
+}
+
+.note-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.note-content {
+  font-size: 12px;
+  color: #92400e;
+  line-height: 1.4;
+}
+
+/* Footer */
+.panel-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  text-align: center;
+}
+
+.refresh-button {
+  padding: 8px 16px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.refresh-button:disabled {
+  background: #d1d5db;
+  cursor: not-allowed;
+}
+
+.refresh-note {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 8px;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+/* Error State */
+.error-header {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.error-message {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 12px;
+}
+
+.retry-button {
+  padding: 8px 16px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retry-button:hover {
+  background: #dc2626;
+}
+
+.offline-note {
+  margin-top: 12px;
+  padding: 10px;
+  background: #fef2f2;
+  border-left: 3px solid #ef4444;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #7f1d1d;
+}
+
+/* Scrollbar */
+.safe-alert-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.safe-alert-panel::-webkit-scrollbar-track {
+  background: #f3f4f6;
+}
+
+.safe-alert-panel::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.safe-alert-panel::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-header h2 {
+    font-size: 16px;
+  }
+
+  .prediction-value {
+    font-size: 18px;
+  }
+}

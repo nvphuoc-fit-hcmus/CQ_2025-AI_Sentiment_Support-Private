@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-04-07T03:07:48.864051",
+  "model": "safe_alert_btcusdt_1h_epoch20",
+  "dataset": "BTCUSDT/1h",
+  "test_samples": 6959,
+  "metrics": {
+    "total_return": 3.7656862805834326,
+    "sharpe_ratio": 2.256031936871367,
+    "sortino_ratio": 3.8612708209005975,
+    "calmar_ratio": 0.0010920267500194427,
+    "max_drawdown": -0.9301228556432822,
+    "win_rate": 0.014082483115390142,
+    "trade_count": 154,
+    "cum_return": 3.7656862805834326,
+    "alert_precision": 0.8116883116883117,
+    "hit_rate": 0.8454545454545455
+  }
+}

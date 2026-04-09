@@ -73,7 +73,7 @@ function UserApp() {
 
       {currentPage === 'trading' ? (
         <div className="main-content">
-          <LeftToolbar />
+          <LeftToolbar currentPage={currentPage} onNavigate={setCurrentPage} />
           <div className="chart-area">
             <TradingDashboard />
           </div>

@@ -84,31 +84,37 @@ async function getCurrentPrice(symbol) {
 
 // Kafka consumer for investment analysis results
 async function consumeKafkaTopics() {
-    await consumer.connect();
-    // Subscribe only to investment analysis results
-    await consumer.subscribe({ topics: ['investment.analysis.result'], fromBeginning: true });
+    try {
+        await consumer.connect();
+        // Subscribe only to investment analysis results
+        await consumer.subscribe({ topics: ['investment.analysis.result'], fromBeginning: false });
 
-    await consumer.run({
-        eachMessage: async ({ topic, partition, message }) => {
-            try {
-                const payload = JSON.parse(message.value.toString());
+        await consumer.run({
+            eachMessage: async ({ topic, partition, message }) => {
+                try {
+                    const payload = JSON.parse(message.value.toString());
 
-                if (topic === 'investment.analysis.result') {
-                    // Handle analysis result from AI service
-                    const requestId = payload.requestId;
-                    if (requestId && pendingAnalysisRequests.has(requestId)) {
-                        const { resolve, timeout } = pendingAnalysisRequests.get(requestId);
-                        clearTimeout(timeout);
-                        pendingAnalysisRequests.delete(requestId);
-                        resolve(payload);
-                        console.log(`[KAFKA] Resolved analysis request ${requestId}`);
+                    if (topic === 'investment.analysis.result') {
+                        // Handle analysis result from AI service
+                        const requestId = payload.requestId;
+                        if (requestId && pendingAnalysisRequests.has(requestId)) {
+                            const { resolve, timeout } = pendingAnalysisRequests.get(requestId);
+                            clearTimeout(timeout);
+                            pendingAnalysisRequests.delete(requestId);
+                            resolve(payload);
+                            console.log(`[KAFKA] Resolved analysis request ${requestId}`);
+                        }
                     }
+                } catch (error) {
+                    console.error('[KAFKA ERROR]', error);
                 }
-            } catch (error) {
-                console.error('[KAFKA ERROR]', error);
-            }
-        },
-    });
+            },
+        });
+        console.log('[KAFKA] Consumer connected and listening to investment.analysis.result');
+    } catch (err) {
+        console.warn('[KAFKA] Consumer setup failed (non-fatal):', err.message);
+        console.warn('[KAFKA] Service will continue without Kafka consumer - analysis will use fallback mode');
+    }
 }
 
 // Fetch latest prediction for a specific symbol from Core Service
@@ -141,17 +147,142 @@ async function fetchPredictionForSymbol(symbol) {
     }
 }
 
-// Get AI prediction for specific symbol
-async function getAIPredictionForSymbol(symbol) {
-    // Always fetch fresh prediction from database for the requested symbol
-    const pred = await fetchPredictionForSymbol(symbol);
-
-    if (!pred) {
-        console.warn(`[AI] No prediction found for ${symbol} in database`);
+// Fallback: query ai-service in-memory cache directly
+async function fetchPredictionFromAIService(symbol) {
+    try {
+        const res = await axios.get('http://ai-service:8002/predictions/latest', { timeout: 5000 });
+        const data = res.data;
+        // data = { meta: {...}, predictions: [...] } or { status: 'no_prediction_yet' }
+        if (data && Array.isArray(data.predictions)) {
+            const pred = data.predictions.find(p => p.symbol === symbol);
+            if (pred) {
+                console.log(`[AI-FETCH-DIRECT] Found prediction for ${symbol} from ai-service cache`);
+                return normalizePrediction(pred);
+            }
+            console.warn(`[AI-FETCH-DIRECT] Symbol ${symbol} not in ai-service cache (${data.predictions.length} predictions available)`);
+        } else {
+            console.warn('[AI-FETCH-DIRECT] ai-service has no predictions yet:', data && data.status);
+        }
+        return null;
+    } catch (e) {
+        console.warn(`[AI-FETCH-DIRECT] Failed to query ai-service directly:`, e.message);
         return null;
     }
+}
 
+// NEW: Fetch SAFE-Alert real-time signal with technical indicators
+async function fetchSAFEAlertSignal(symbol) {
+    try {
+        const res = await axios.get(`http://ai-service:8002/v2/signal/${symbol}`, { timeout: 8000 });
+        const data = res.data;
+
+        if (data && data.horizon_1h) {
+            console.log(`[SAFE-ALERT] Got prediction for ${symbol}: signal=${data.horizon_1h.signal}, conf=${data.horizon_1h.confidence}`);
+
+            // Calculate price change % based on signal and confidence
+            // Formula: mag = |confidence - 0.5| * 0.04 * 100 (max ~2% per direction)
+            // But we can boost it up to 8% for more realistic positioning
+            const confidence = data.horizon_1h.confidence || 0;
+            const signal = data.horizon_1h.signal || 'HOLD';
+
+            // Magnitude: confidence affects magnitude of price change
+            // At conf=1.0: max 4% change, at conf=0.5: 0% change (neutral)
+            const mag = Math.abs(confidence - 0.5) * 0.08; // 8% max (0-4% per direction)
+            const changePercent = signal === 'BUY' ? (mag * 100) : (signal === 'SELL' ? (-mag * 100) : 0);
+
+            // Map to investment format
+            return {
+                symbol,
+                direction: signal === 'BUY' ? 'UP' : (signal === 'SELL' ? 'DOWN' : 'SIDEWAYS'),
+                confidence: confidence,
+                change_percent: parseFloat(changePercent.toFixed(2)),  // Now correctly in percentage
+                reason: `SAFE-Alert 1h: ${signal} (conf=${(confidence*100).toFixed(1)}%)`,
+                causal_factor: 'SAFE-Alert Multi-Horizon',
+                technical_indicators: data.top_inputs,
+                selected_news: data.horizon_1h.selected_news || [],
+                alert_level: data.alert.level,
+                is_safe_alert: true,
+                forecast: {
+                    next_1h: {
+                        direction: signal === 'BUY' ? 'UP' : (signal === 'SELL' ? 'DOWN' : 'SIDEWAYS'),
+                        confidence: (confidence * 100).toFixed(1),
+                        price_change_percent: changePercent
+                    },
+                    next_4h: {
+                        direction: data.horizon_4h.signal === 'BUY' ? 'UP' : (data.horizon_4h.signal === 'SELL' ? 'DOWN' : 'SIDEWAYS'),
+                        confidence: ((data.horizon_4h.confidence || 0) * 100).toFixed(1),
+                        price_change_percent: data.horizon_4h.signal === 'BUY' ? (Math.abs((data.horizon_4h.confidence || 0) - 0.5) * 8 * 100) : (data.horizon_4h.signal === 'SELL' ? (-Math.abs((data.horizon_4h.confidence || 0) - 0.5) * 8 * 100) : 0)
+                    }
+                }
+            };
+        }
+
+        console.warn('[SAFE-ALERT] Invalid response format:', data);
+        return null;
+    } catch (e) {
+        console.warn(`[SAFE-ALERT] Failed to fetch signal for ${symbol}:`, e.message);
+        return null;
+    }
+}
+
+
+// Get AI prediction for specific symbol
+// Normalize a raw prediction object (from inference engine) to add top-level shorthand fields
+function normalizePrediction(pred) {
+    if (!pred) return null;
+    const next1h = (pred.forecast && pred.forecast.next_1h) ? pred.forecast.next_1h : {};
+    // Add top-level shorthand fields used by generateAdvice() fallback
+    if (pred.direction === undefined) pred.direction = next1h.direction || 'SIDEWAYS';
+    if (pred.confidence === undefined) pred.confidence = (next1h.confidence || 0) / 100; // normalize 0-100 → 0-1
+    if (pred.change_percent === undefined) pred.change_percent = next1h.price_change_percent || 0;
+    if (pred.reason === undefined) pred.reason = pred.explanation || '';
+    if (pred.causal_factor === undefined) pred.causal_factor = (pred.causal_analysis && pred.causal_analysis.primary_driver) || '';
     return pred;
+}
+
+async function getAIPredictionForSymbol(symbol) {
+    // 1. Try core-service database (primary source)
+    let pred = await fetchPredictionForSymbol(symbol);
+    if (pred) return normalizePrediction(pred);
+
+    // 2. Fall back to ai-service in-memory cache (works even when core-service DB is empty)
+    console.warn(`[AI] No prediction in DB for ${symbol}, trying ai-service cache...`);
+    pred = await fetchPredictionFromAIService(symbol);
+    if (pred) return pred;
+
+    console.warn(`[AI] No prediction available for ${symbol} from any source`);
+    return null;
+}
+
+function buildLocalFallbackPrediction(symbol) {
+    // Lightweight deterministic fallback so local dev can still use investment analysis
+    // when AI pipeline is unavailable.
+    const now = new Date().toISOString();
+    const pseudo = Array.from(symbol).reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    const raw = ((pseudo % 7) - 3) * 0.15; // roughly -0.45% .. +0.45%
+    const change = Math.max(-0.8, Math.min(0.8, raw));
+    const direction = change > 0.1 ? 'UP' : (change < -0.1 ? 'DOWN' : 'SIDEWAYS');
+
+    return {
+        symbol,
+        direction,
+        confidence: 0.55,
+        change_percent: change,
+        reason: 'AI service unavailable - using local fallback estimation.',
+        causal_factor: 'LOCAL_FALLBACK',
+        is_fallback: true,
+        forecast: {
+            next_1h: {
+                direction,
+                price_change_percent: change,
+                confidence: 55
+            }
+        },
+        meta: {
+            timestamp: now,
+            source: 'local_fallback'
+        }
+    };
 }
 
 // Helper: Perform Investment Analysis Logic
@@ -159,42 +290,52 @@ async function analyzeInvestmentLogic(symbol, usdt_amount, target_sell_time) {
     const buyPrice = await getCurrentPrice(symbol);
     const coinAmount = usdt_amount / buyPrice;
 
-    // Get AI prediction - REQUIRED
-    const aiPred = await getAIPredictionForSymbol(symbol);
-
-    if (!aiPred) {
-        throw new Error('AI_SERVICE_UNAVAILABLE');
+    // PRIMARY: Try SAFE-Alert real-time signal FIRST
+    let aiPred = await fetchSAFEAlertSignal(symbol);
+    if (aiPred) {
+        console.log(`[INVESTMENT] Using SAFE-Alert prediction for ${symbol}`);
+    } else {
+        // SECONDARY: Try legacy AI service
+        console.log(`[INVESTMENT] SAFE-Alert unavailable, trying legacy AI service...`);
+        aiPred = await getAIPredictionForSymbol(symbol);
+        if (!aiPred) {
+            aiPred = buildLocalFallbackPrediction(symbol);
+            console.warn(`[AI] Using local fallback prediction for ${symbol}`);
+        }
     }
+    let aiAnalysis = null;
     try {
-        const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const analysisPayload = {
-            requestId,
-            symbol,
-            amount: parseFloat(usdt_amount),
-            buy_price: buyPrice,
-            target_sell_time,
-            current_time: new Date().toISOString(),
-            market_prediction: aiPred
-        };
+        if (!aiPred.is_fallback) {
+            const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const analysisPayload = {
+                requestId,
+                symbol,
+                amount: parseFloat(usdt_amount),
+                buy_price: buyPrice,
+                target_sell_time,
+                current_time: new Date().toISOString(),
+                market_prediction: aiPred
+            };
 
-        // Send to Kafka
-        await producer.send({
-            topic: 'investment.analysis.request',
-            messages: [{ key: requestId, value: JSON.stringify(analysisPayload) }]
-        });
+            // Send to Kafka
+            await producer.send({
+                topic: 'investment.analysis.request',
+                messages: [{ key: requestId, value: JSON.stringify(analysisPayload) }]
+            });
 
-        // Wait for reply with 120s timeout
-        aiAnalysis = await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                if (pendingAnalysisRequests.has(requestId)) {
-                    pendingAnalysisRequests.delete(requestId);
-                    resolve(null);
-                    console.warn(`[KAFKA TIMEOUT] Analysis request ${requestId} timed out`);
-                }
-            }, 1200000); // 20 minutes timeout
+            // Wait for reply with bounded timeout
+            aiAnalysis = await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    if (pendingAnalysisRequests.has(requestId)) {
+                        pendingAnalysisRequests.delete(requestId);
+                        resolve(null);
+                        console.warn(`[KAFKA TIMEOUT] Analysis request ${requestId} timed out`);
+                    }
+                }, 8000); // 8 seconds timeout (ai-service uses cached V2 signal)
 
-            pendingAnalysisRequests.set(requestId, { resolve, reject, timeout });
-        });
+                pendingAnalysisRequests.set(requestId, { resolve, reject, timeout });
+            });
+        }
     } catch (err) {
         console.error('[AI ANALYSIS ERROR]', err.message);
     }
@@ -542,13 +683,13 @@ function generateAdvice(aiPred, buyPrice, usdtAmount) {
 
     let advice = '';
 
-    if (direction === 'UP' && confidence > 0.7) {
+    if (direction === 'UP' && confidence >= 0.01) {
         advice = `✅ AI KHUYẾN NGHỊ ĐẦU TƯ\n`;
-        advice += `Dự đoán giá sẽ TĂNG ${change_percent.toFixed(2)}% (độ tin cậy ${(confidence * 100).toFixed(0)}%)\n`;
+        advice += `Dự đoán giá sẽ TĂNG ${change_percent.toFixed(2)}% (độ tin cậy ${(confidence * 100).toFixed(1)}%)\n`;
         advice += `Lợi nhuận dự kiến: ${(usdtAmount * change_percent / 100).toFixed(2)} USDT\n`;
-    } else if (direction === 'DOWN' && confidence > 0.7) {
+    } else if (direction === 'DOWN' && confidence >= 0.01) {
         advice = `❌ AI KHÔNG KHUYẾN NGHỊ\n`;
-        advice += `Dự đoán giá sẽ GIẢM ${Math.abs(change_percent).toFixed(2)}% (độ tin cậy ${(confidence * 100).toFixed(0)}%)\n`;
+        advice += `Dự đoán giá sẽ GIẢM ${Math.abs(change_percent).toFixed(2)}% (độ tin cậy ${(confidence * 100).toFixed(1)}%)\n`;
         advice += `Rủi ro lỗ: ${Math.abs(usdtAmount * change_percent / 100).toFixed(2)} USDT\n`;
     } else {
         advice = `⚠️ AI CHƯA RÕ RÀNG\n`;
@@ -604,8 +745,16 @@ app.get('/health', (req, res) => {
 // Start server
 const PORT = process.env.PORT || 8001;
 server.listen(PORT, async () => {
-    await initDB();
-    await producer.connect();
+    try {
+        await initDB();
+    } catch (err) {
+        console.error('[STARTUP] DB init failed:', err.message);
+    }
+    try {
+        await producer.connect();
+    } catch (err) {
+        console.warn('[STARTUP] Kafka producer connect failed (non-fatal):', err.message);
+    }
     await consumeKafkaTopics();
     console.log(`[INVESTMENT SERVICE] Running on port ${PORT}`);
     console.log(`[WEBSOCKET] Ready for connections`);

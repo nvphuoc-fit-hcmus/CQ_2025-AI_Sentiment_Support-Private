@@ -498,7 +498,7 @@ export default function InvestmentSimulator() {
                                         <div className="stat-item">
                                             <div className="stat-label">Tin cậy</div>
                                             <div className="stat-value" style={{ color: 'var(--accent-yellow)' }}>
-                                                {(analysisResult.confidence * 10).toFixed(0)}%
+                                                {(analysisResult.confidence * 100).toFixed(1)}%
                                             </div>
                                         </div>
                                         <div className="stat-item">

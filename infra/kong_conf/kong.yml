@@ -118,6 +118,23 @@ services:
         config:
           claims_to_verify: ["exp"]
 
+  - name: ai-service
+    url: "http://ai-service:8002"
+    routes:
+      - name: ai-signal-route
+        paths: ["/v2/signal"]
+        strip_path: false
+      - name: ai-health-route
+        paths: ["/health"]
+        strip_path: false
+    plugins:
+      - name: cors
+        config:
+          origins: ["*"]
+          methods: ["GET", "POST", "OPTIONS"]
+          headers: ["*"]
+          credentials: true
+
 consumers:
   - username: shared-auth-consumer
     jwt_secrets:

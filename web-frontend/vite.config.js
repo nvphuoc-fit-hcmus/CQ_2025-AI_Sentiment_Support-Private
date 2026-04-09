@@ -7,11 +7,11 @@ export default defineConfig({
     host: true, // Listen on 0.0.0.0 for Docker access
     port: 5173,
     proxy: {
-      // Internal Vite proxy (container -> container)
-      '/api': 'http://kong:8000',
-      '/auth': 'http://kong:8000',
+      // Local dev: proxy to Kong Gateway on localhost:8000
+      '/api': 'http://localhost:8000',
+      '/auth': 'http://localhost:8000',
       '/socket.io': {
-        target: 'http://stream-service:3000', // Direct to stream service for WS if Kong fails, or kong:8000
+        target: 'http://localhost:8000', // Kong → haproxy:8005 → stream-service
         ws: true,
         rewrite: (path) => path.replace(/^\/socket.io/, '/socket.io')
       }

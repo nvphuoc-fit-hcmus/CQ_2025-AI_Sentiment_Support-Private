@@ -7,6 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
+    curl \
     librdkafka-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +21,7 @@ COPY requirements.txt .
 # Loại bỏ torch trong requirements.txt nếu có (để tránh nó cài đè bản GPU)
 # Dùng --prefer-binary để ưu tiên cài bản wheel có sẵn thay vì compile lại (Pandas/Numpy)
 RUN sed -i '/torch/d' requirements.txt && \
-    pip install --no-cache-dir --prefer-binary -r requirements.txt
+    pip install --no-cache-dir --prefer-binary --timeout 120 --retries 5 -r requirements.txt
 
 # 4. Copy source code cuối cùng
 COPY app ./app

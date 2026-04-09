@@ -15,7 +15,7 @@ from urllib3.util.retry import Retry
 import redis
 from email.utils import parsedate_to_datetime
 
-from app.db import init_db, get_active_sources, update_source_status, save_article
+from app.db import init_db, get_active_sources, update_source_status, save_article, get_db
 from app.services.discovery import get_links_from_rss, get_links_from_html
 from app.services.extractor import smart_extract
 from app.kafka_producer import produce_news, close_producer, create_startup_topics
@@ -272,3 +272,62 @@ async def crawl_endpoint(req: CrawlRequest):
 @app.get('/health')
 def health():
     return {"status": "ok"}
+
+
+@app.get('/news/latest')
+def get_latest_news(limit: int = 100):
+    """Fallback endpoint: return latest crawled articles from MongoDB."""
+    try:
+        lim = max(1, min(int(limit or 100), 500))
+        db = get_db()
+        docs = list(
+            db.news_articles.find(
+                {},
+                {
+                    "_id": 0,
+                    "url": 1,
+                    "source": 1,
+                    "title": 1,
+                    "sentiment": 1,
+                    "published_at": 1,
+                    "created_at": 1,
+                },
+            )
+            .sort("created_at", -1)
+            .limit(lim)
+        )
+
+        rows = []
+        for doc in docs:
+            sentiment = doc.get("sentiment")
+            sentiment_score = 0.0
+            if isinstance(sentiment, (int, float)):
+                sentiment_score = float(sentiment)
+            elif isinstance(sentiment, dict):
+                if isinstance(sentiment.get("score"), (int, float)):
+                    sentiment_score = float(sentiment.get("score"))
+                else:
+                    pos = float(sentiment.get("positive", 0) or 0)
+                    neg = float(sentiment.get("negative", 0) or 0)
+                    sentiment_score = pos - neg
+
+            rows.append(
+                {
+                    "time": doc.get("published_at") or doc.get("created_at"),
+                    "url": doc.get("url"),
+                    "source": doc.get("source"),
+                    "title": doc.get("title"),
+                    "sentiment_score": sentiment_score,
+                    "raw_score": sentiment,
+                }
+            )
+
+        return {
+            "count": len(rows),
+            "rows": rows,
+            "total": len(rows),
+            "source": "crawler_fallback",
+        }
+    except Exception as e:
+        LOG.error(f"Failed to fetch fallback news: {e}")
+        return {"count": 0, "rows": [], "total": 0, "source": "crawler_fallback_error"}

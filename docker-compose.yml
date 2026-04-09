@@ -339,6 +339,10 @@ services:
       AI_INSIGHTS_TOPIC: ai_insights
       MARKET_DATA_TOPIC: market.prices
 
+      # MongoDB for news articles
+      MONGO_URL: "mongodb://mongo-crawler:27017"
+      MONGO_DB: "crawler_db"
+
       # Deep Learning Config
       MODEL_PATH: "/app/checkpoints/best_model.pth"
       DEVICE: "cpu" # Docker on macOS cannot access GPU directly yet. Use 'cpu'.
@@ -360,9 +364,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
-    # SECURITY: No port exposure - only accessible via Kong Gateway
-    # ports:
-    #   - "8002:8002"
+    # SECURITY: Expose for testing/debugging
+    ports:
+      - "8002:8002"
     logging:
       driver: "json-file"
       options:

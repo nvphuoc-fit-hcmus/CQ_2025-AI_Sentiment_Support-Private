@@ -1,0 +1,13 @@
+{
+  "tau": 0.55,
+  "gamma": 0.55,
+  "coverage": 0.30,
+  "alert_precision": 0.811,
+  "val_sharpe_proxy": 0.049,
+  "target_coverage": 0.30,
+  "score": 0.432,
+  "symbol": "BTCUSDT",
+  "horizon": "1h",
+  "mode": "walk_forward_fold3",
+  "note": "Thresholds from walk-forward fold_3: F1=0.432, Precision=0.811, Coverage=30%, Sharpe=0.049"
+}

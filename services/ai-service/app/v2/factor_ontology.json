@@ -1,0 +1,20 @@
+{
+  "FACTOR_NAMES": [
+    "institutional_inflow", "etf_flow", "regulatory_easing",
+    "regulatory_tightening", "exchange_risk", "liquidity_squeeze",
+    "whale_accumulation", "macro_uncertainty", "protocol_upgrade",
+    "network_outage"
+  ],
+  "FACTOR_KEYWORDS": {
+    "institutional_inflow":  ["institution","fund","grayscale","microstrategy","blackrock","corporate","treasury"],
+    "etf_flow":              ["etf","spot etf","bitcoin etf","sec approval","etf inflow","etf outflow"],
+    "regulatory_easing":     ["approved","legal","regulatory clarity","compliant","licensed","framework"],
+    "regulatory_tightening": ["ban","crackdown","illegal","sanction","sec sue","enforcement","restrict"],
+    "exchange_risk":         ["hack","exploit","exchange down","withdrawal halt","insolvent","ftx","celsius","rug"],
+    "liquidity_squeeze":     ["liquidity","leverage","liquidation","margin call","funding rate","squeeze","cascade"],
+    "whale_accumulation":    ["whale","large transaction","on-chain","address","wallet","accumulate","hodl"],
+    "macro_uncertainty":     ["inflation","fed","interest rate","recession","gdp","cpi","fomc","treasury yield"],
+    "protocol_upgrade":      ["upgrade","fork","halving","taproot","merge","protocol","layer2","lightning"],
+    "network_outage":        ["network outage","congestion","fees spike","mempool","hash rate drop","51%"]
+  }
+}

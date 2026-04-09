@@ -114,7 +114,52 @@ def _start_consumer():
             pass
 
 
+_PREFETCH_SYMBOLS   = ["BTCUSDT", "ETHUSDT"]
+_PREFETCH_INTERVALS = ["1h", "1d"]   # intervals needed by V2 models
+_PREFETCH_LIMIT     = 250
+
+
+def _prefetch_from_binance(symbols=None, intervals=None, limit=_PREFETCH_LIMIT):
+    """
+    Fetch historical klines directly from Binance REST API and seed the cache.
+    Runs at startup so that V2 inference has enough candles even after a restart.
+    Silently skips on network error.
+    """
+    import urllib.request
+    syms  = symbols  or _PREFETCH_SYMBOLS
+    ivals = intervals or _PREFETCH_INTERVALS
+
+    for sym in syms:
+        for interval in ivals:
+            key = f"{sym.upper()}_{interval}"
+            if len(_cache[key]) >= limit:
+                continue   # already populated (e.g. from Kafka earliest offset)
+            try:
+                url = (
+                    f"https://api.binance.com/api/v3/klines"
+                    f"?symbol={sym.upper()}&interval={interval}&limit={limit}"
+                )
+                with urllib.request.urlopen(url, timeout=10) as resp:
+                    rows = json.loads(resp.read())
+                # Each row: [openTime,open,high,low,close,vol,closeTime,...]
+                for row in rows:
+                    t_ms = int(row[6])              # closeTime ms
+                    _cache[key].append({
+                        "time":   int(t_ms / 1000),
+                        "open":   float(row[1]),
+                        "high":   float(row[2]),
+                        "low":    float(row[3]),
+                        "close":  float(row[4]),
+                        "volume": float(row[5]),
+                    })
+                print(f"[market_cache] prefetched {len(rows)} {interval} candles for {sym}")
+            except Exception as e:
+                print(f"[market_cache] prefetch failed for {sym}/{interval}: {e}")
+
+
 def start_market_cache_thread():
+    # Seed cache with historical data before starting live consumer
+    _prefetch_from_binance()
     t = threading.Thread(target=_start_consumer, daemon=True)
     t.start()
 

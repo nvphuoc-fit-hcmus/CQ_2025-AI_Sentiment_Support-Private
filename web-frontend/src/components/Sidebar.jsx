@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import useStore from '../store';
 import { useRefreshVIPStatus } from '../hooks/useRefreshVIPStatus';
 import NewsList from './NewsList';
-import InsightsList from './InsightsList';
+import SAFEAlertPanel from './SAFEAlertPanel';  // FIXED: Import SAFEAlertPanel
 import Watchlist from './Watchlist';
 import { Newspaper, BrainCircuit, Lock, List } from 'lucide-react';
 
@@ -51,14 +51,7 @@ export default function Sidebar() {
                 {activeTab === 'watchlist' && <Watchlist />}
                 {activeTab === 'news' && <NewsList />}
                 {activeTab === 'insights' && (
-                    isVip ? <InsightsList /> : (
-                        <div className="vip-lock">
-                            <Lock className="vip-icon" />
-                            <h3>Yêu cầu VIP</h3>
-                            <p style={{ fontSize: '13px', marginTop: 8 }}>Nâng cấp tài khoản để xem phân tích AI nhân quả và dự báo giá thời gian thực.</p>
-                            <button className="upgrade-btn" onClick={triggerUpgrade}>Nâng cấp ngay</button>
-                        </div>
-                    )
+                    <SAFEAlertPanel symbol={'BTCUSDT'} />
                 )}
             </div>
         </div>
