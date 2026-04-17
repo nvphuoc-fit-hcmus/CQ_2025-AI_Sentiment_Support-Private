@@ -16,11 +16,18 @@ class NewsSelectionConfig:
 
 
 # SAFE-Alert: Per-horizon news selection (Section 3.4.3 of paper)
-# 1h: narrow window, top-3 (focus on breaking news)
-# 4h: wide window, top-5 (broader context)
-# top_k must match SAFEAlertNet.K_h_map: K_1h=4, K_4h=5
-# (model is initialized with K_1h=4, K_4h=5 in train_safe_alert.py main())
+# 15m: very narrow window, top-3 (breaking news only, high recency weight)
+# 1h:  narrow window, top-4 (focus on breaking news)
+# 4h:  wide window, top-5 (broader context)
+# 24h: full-day window, top-8 (macro context)
+# top_k must match SAFEAlertNet.K_h_map: K_15m=3, K_1h=4, K_4h=5, K_24h=8
+# (model is initialized with those K values in train_safe_alert.py main())
 HORIZON_SELECTION_CONFIGS: dict[str, NewsSelectionConfig] = {
+    "15m": NewsSelectionConfig(
+        lookback_minutes=30,
+        top_k=3,  # matches model K_15m=3
+        relevance_cfg=HORIZON_RELEVANCE_CONFIGS["15m"],
+    ),
     "1h": NewsSelectionConfig(
         lookback_minutes=60,
         top_k=4,  # matches model K_1h=4
@@ -30,6 +37,11 @@ HORIZON_SELECTION_CONFIGS: dict[str, NewsSelectionConfig] = {
         lookback_minutes=240,
         top_k=5,  # matches model K_4h=5
         relevance_cfg=HORIZON_RELEVANCE_CONFIGS["4h"],
+    ),
+    "24h": NewsSelectionConfig(
+        lookback_minutes=1440,
+        top_k=8,  # matches model K_24h=8
+        relevance_cfg=HORIZON_RELEVANCE_CONFIGS["24h"],
     ),
 }
 
@@ -48,7 +60,7 @@ def select_top_k_news(
 
     window = news_df[
         (news_df["published_at"] >= start_time) &
-        (news_df["published_at"] <= current_time)
+        (news_df["published_at"] < current_time)
     ].copy()
 
     if window.empty:
@@ -77,8 +89,10 @@ def select_news_for_horizon(
     SAFE-Alert Component 1 — Per-horizon selective news modeling.
 
     Different horizons use different lookback windows and top-K:
-      1h: lookback=60min,  top_k=3  (breaking news focus)
-      4h: lookback=240min, top_k=5  (broader context)
+      15m: lookback=30min,   top_k=3  (breaking news only)
+      1h:  lookback=60min,   top_k=4  (breaking news focus)
+      4h:  lookback=240min,  top_k=5  (broader context)
+      24h: lookback=1440min, top_k=8  (macro context)
 
     Returns selected DataFrame with relevance_score column.
     """

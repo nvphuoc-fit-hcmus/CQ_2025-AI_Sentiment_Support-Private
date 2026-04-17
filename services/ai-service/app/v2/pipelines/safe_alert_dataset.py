@@ -41,6 +41,29 @@ FACTOR_KEYWORDS = {
 FACTOR_NAMES = list(FACTOR_KEYWORDS.keys())
 
 
+def _ensure_timestamp_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize timestamp column name to 'timestamp'."""
+    normalized = {
+        col: col.strip().lstrip("\ufeff").lower()
+        for col in df.columns
+    }
+    if "timestamp" in normalized.values():
+        inv = {v: k for k, v in normalized.items()}
+        return df.rename(columns={inv["timestamp"]: "timestamp"})
+    candidates = [
+        "time", "date", "datetime", "open_time", "open_time_ms", "timestamp_ms", "ts",
+        "published_at", "publishedat",
+    ]
+    for col in candidates:
+        if col in normalized.values():
+            inv = {v: k for k, v in normalized.items()}
+            return df.rename(columns={inv[col]: "timestamp"})
+    for col_raw, col_norm in normalized.items():
+        if "time" in col_norm:
+            return df.rename(columns={col_raw: "timestamp"})
+    return df
+
+
 class SAFEAlertDataset(torch.utils.data.Dataset):
     """SAFE-Alert training dataset (per-candle windows)."""
 
@@ -54,10 +77,11 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
         horizon: str = "1h",
         lookback_hours: int = 24,
         articles_per_candle: int = 8,
-        min_articles: int = 1,
+        min_articles: int = 0,
         precomputed_features: Optional[np.ndarray] = None,  # (52542, 63) precomputed market features
         factor_labels: Optional[np.ndarray] = None,          # (N_articles, 10) precomputed factor probs
         entity_sentiment: Optional[np.ndarray] = None,       # (N_articles, 10) target-based FSA scores [-1,+1]
+        min_factor_confidence: float = 0.6,
     ):
         """
         Args:
@@ -66,22 +90,33 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
             article_meta: article metadata
             article_to_candle: map article_id to nearest candle
             symbol: trading pair
-            horizon: "1h", "4h"
+            horizon: "15m", "1h", "4h", "24h"
             lookback_hours: days of articles to consider around each candle
             articles_per_candle: max articles per sample (pad/truncate to this)
-            min_articles: skip candles with < min_articles
+            min_articles: skip candles with < min_articles. Default 0 keeps no-news
+                          states so training matches production fallbacks.
             precomputed_features: optional (N_candles, 63) precomputed market features for speed
             factor_labels: optional (N_articles, 10) precomputed factor probability distributions.
                            Indexed in the same order as article_meta (articles_max.csv row order).
                            When provided, _extract_factor_distributions uses these directly
                            instead of on-the-fly keyword matching, fixing Lfac stuck at log(10).
+            min_factor_confidence: drop low-confidence article occurrences from each
+                           candle window when precomputed factor labels are available.
+                           If all articles are filtered out, keep the single best article
+                           to avoid empty-news windows caused only by confidence filtering.
         """
         self.candle_df = candle_df.reset_index(drop=True)
 
-        # Horizon → how many 1h candles forward to look for the label (PDF Eq.50)
-        # 1h: next candle (+1), 4h: 4 steps ahead (+4), 24h: 24 steps ahead (+24)
-        _HORIZON_STEPS = {"1h": 1, "4h": 4, "24h": 24}
+        # Horizon → how many candles forward to look for the label (PDF Eq.50)
+        # 15m: 1 step ahead on 15m candles, 1h: 1 step on 1h, 4h: 4 steps on 1h, 24h: 24 steps on 1h
+        _HORIZON_STEPS = {"15m": 1, "1h": 1, "4h": 4, "24h": 24}
         self.horizon_steps = _HORIZON_STEPS.get(horizon, 1)
+
+        # Neutral-band threshold ε_h (PDF Eq.51): horizon-dependent to avoid labelling
+        # small noise moves as directional.  Wider bands for longer horizons because
+        # random-walk variance grows with √h.
+        _EPSILON_H = {"15m": 0.001, "1h": 0.002, "4h": 0.005, "24h": 0.010}
+        self.epsilon_h = _EPSILON_H.get(horizon, 0.002)
         # ✅ FIX #12: L2 normalize embeddings for scale consistency
         embeddings = torch.from_numpy(article_embeddings).float()
         embeddings = embeddings / (embeddings.norm(dim=-1, keepdim=True) + 1e-8)
@@ -92,16 +127,26 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
             print(f"[WARN] SAFEAlertDataset: {zero_embs} zero embeddings detected out of {len(embeddings)}", flush=True)
 
         self.article_embeddings = embeddings
-        self.article_meta = article_meta.reset_index(drop=True)
+        self.article_meta = _ensure_timestamp_column(article_meta).reset_index(drop=True)
         self.article_to_candle = article_to_candle
         self.symbol = symbol
         self.horizon = horizon
         self.lookback_hours = lookback_hours
         self.articles_per_candle = articles_per_candle
         self.min_articles = min_articles
+        self.min_factor_confidence = float(min_factor_confidence)
+        self.market_feature_mean: Optional[torch.Tensor] = None
+        self.market_feature_std: Optional[torch.Tensor] = None
+        self.market_feature_clip: float = 8.0
 
         # Load or use precomputed market features
         if precomputed_features is not None:
+            if len(precomputed_features) != len(self.candle_df):
+                raise ValueError(
+                    "precomputed_features length mismatch: "
+                    f"got {len(precomputed_features)}, expected {len(self.candle_df)}. "
+                    "Recompute features for the filtered candle dataframe."
+                )
             self.precomputed_features = torch.from_numpy(precomputed_features).float()
             self.use_precomputed = True
         else:
@@ -118,10 +163,12 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
                 self.precomputed_factor_labels = None
             else:
                 self.precomputed_factor_labels = factor_labels.astype(np.float32)
+                self.article_max_prob = self.precomputed_factor_labels.max(axis=1)
                 print(f"[OK] SAFEAlertDataset: using precomputed factor labels {factor_labels.shape} "
                       f"(fixes Lfac stuck at log(10)=2.303)", flush=True)
         else:
             self.precomputed_factor_labels = None
+            self.article_max_prob = None
 
         # Load target-based FSA entity sentiment scores
         # Shape: (N_articles, 10) float32 in [-1, +1], one score per factor per article
@@ -138,9 +185,20 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
         else:
             self.entity_sentiment = None
 
+        # Source credibility: log-normalized corpus frequency.
+        # cred(s) = log(count_s + 1) / log(count_max + 1) ∈ [0, 1].
+        # More frequently published sources are treated as more established.
+        # Replaces the hardcoded 7-source map where >80% of articles got 0.5 (constant).
+        self._source_cred_map = self._build_source_cred_map()
+
         # Convert timestamps to datetime
-        self.candle_df['timestamp'] = pd.to_datetime(self.candle_df['timestamp'])
-        self.article_meta['timestamp'] = pd.to_datetime(self.article_meta['timestamp'])
+        self.candle_df = _ensure_timestamp_column(self.candle_df)
+        if "timestamp" not in self.candle_df.columns:
+            raise KeyError("timestamp")
+        if "timestamp" not in self.article_meta.columns:
+            raise KeyError("timestamp")
+        self.candle_df["timestamp"] = pd.to_datetime(self.candle_df["timestamp"], errors="coerce")
+        self.article_meta["timestamp"] = pd.to_datetime(self.article_meta["timestamp"], errors="coerce")
 
         # Build reverse mapping: candle_idx → list of article indices
         self._build_candle_article_map()
@@ -154,6 +212,95 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
                 self.valid_idx.append(i)
 
         print(f"[OK] SAFEAlertDataset: {len(self.valid_idx)}/{len(candle_df)} candles with articles", flush=True)
+
+    def fit_market_scaler(self, dataset_indices: List[int] | range, clip_value: float = 8.0) -> None:
+        """Fit train-only z-score normalization for market features.
+
+        `dataset_indices` are indices in dataset space (i.e. positions inside `self.valid_idx`),
+        not raw candle indices. This keeps scaling aligned with walk-forward subsets and avoids
+        leakage from validation/test windows.
+        """
+        self.market_feature_clip = float(clip_value)
+
+        if len(dataset_indices) == 0:
+            self.market_feature_mean = None
+            self.market_feature_std = None
+            return
+
+        candle_indices = [self.valid_idx[int(i)] for i in dataset_indices]
+        if self.use_precomputed:
+            train_feat = self.precomputed_features[candle_indices]
+        else:
+            train_feat = []
+            for candle_idx in candle_indices:
+                candle = self.candle_df.iloc[candle_idx]
+                train_feat.append(torch.from_numpy(self._extract_market_features(candle, candle_idx)).float())
+            train_feat = torch.stack(train_feat, dim=0)
+
+        train_feat = torch.nan_to_num(train_feat, nan=0.0, posinf=1e4, neginf=-1e4)
+        mean = train_feat.mean(dim=0)
+        std = train_feat.std(dim=0, unbiased=False)
+        std = torch.where(std < 1e-6, torch.ones_like(std), std)
+
+        self.market_feature_mean = mean.float()
+        self.market_feature_std = std.float()
+
+    def _normalize_market_features(self, market_features: torch.Tensor) -> torch.Tensor:
+        market_features = torch.nan_to_num(market_features.float(), nan=0.0, posinf=1e4, neginf=-1e4)
+        if self.market_feature_mean is not None and self.market_feature_std is not None:
+            market_features = (market_features - self.market_feature_mean) / self.market_feature_std
+            market_features = torch.clamp(
+                market_features,
+                min=-self.market_feature_clip,
+                max=self.market_feature_clip,
+            )
+        return market_features
+
+    def _build_source_cred_map(self) -> dict:
+        """Combined source credibility: 0.6 * freq_score + 0.4 * length_score.
+
+        freq_score  = log(count+1) / log(count_max+1)  — established sources publish more
+        length_score = mean_content_len / 500, clipped to [0,1] — professional sources
+                       write longer, more detailed articles vs. social/spam sources.
+
+        Returns dict: source_name_lower → float in [0, 1].
+        Unknown sources fall back to 0.3 at lookup time.
+        """
+        if 'source' not in self.article_meta.columns:
+            return {}
+
+        src_col = self.article_meta['source'].dropna().str.lower().str.strip()
+        counts = src_col.value_counts()
+        if counts.empty:
+            return {}
+
+        # Frequency score
+        log_max = float(np.log1p(counts.iloc[0]))
+        if log_max == 0:
+            return {}
+        freq_scores = {src: float(np.log1p(cnt) / log_max) for src, cnt in counts.items()}
+
+        # Length score: mean content length per source, normalized to [0,1]
+        length_scores = {}
+        if 'content' in self.article_meta.columns:
+            tmp = self.article_meta.copy()
+            tmp['_src'] = src_col
+            tmp['_len'] = tmp['content'].fillna('').astype(str).str.len()
+            mean_len = tmp.groupby('_src')['_len'].mean()
+            max_len = float(mean_len.max()) if len(mean_len) > 0 else 1.0
+            if max_len > 0:
+                length_scores = {src: float(min(l / max_len, 1.0)) for src, l in mean_len.items()}
+
+        cred_map = {}
+        for src in freq_scores:
+            fs = freq_scores[src]
+            ls = length_scores.get(src, fs)  # fallback to freq if no length data
+            cred_map[src] = float(0.6 * fs + 0.4 * ls)
+
+        print(f"[OK] SAFEAlertDataset: source_cred built from {len(cred_map)} sources "
+              f"(top: {list(cred_map.keys())[:3]}, range=[{min(cred_map.values()):.2f},{max(cred_map.values()):.2f}])",
+              flush=True)
+        return cred_map
 
     def _build_candle_article_map(self):
         """Build candle_idx → article indices mapping using fast vectorized ops."""
@@ -169,7 +316,9 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
             window_start = candle_time - np.timedelta64(self.lookback_hours, 'h')
 
             # Find articles in window
-            mask = (article_times >= window_start) & (article_times <= candle_time)
+            # Strictly past-only news window: exclude articles at exact candle timestamp
+            # to prevent ambiguous same-bar information leakage.
+            mask = (article_times >= window_start) & (article_times < candle_time)
             article_indices = np.where(mask)[0].tolist()
 
             if len(article_indices) > 0:
@@ -191,6 +340,33 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.valid_idx)
 
+    def _filter_article_indices_by_factor_confidence(self, article_indices: List[int]) -> List[int]:
+        """Drop low-confidence article occurrences while keeping one best fallback."""
+        if (
+            self.min_factor_confidence <= 0.0
+            or self.article_max_prob is None
+            or len(article_indices) == 0
+        ):
+            return article_indices
+
+        filtered = [
+            art_idx for art_idx in article_indices
+            if art_idx < len(self.article_max_prob)
+            and self.article_max_prob[art_idx] >= self.min_factor_confidence
+        ]
+        if filtered:
+            return filtered
+
+        valid_original = [
+            art_idx for art_idx in article_indices
+            if art_idx < len(self.article_max_prob)
+        ]
+        if not valid_original:
+            return article_indices
+
+        best_art_idx = max(valid_original, key=lambda art_idx: float(self.article_max_prob[art_idx]))
+        return [best_art_idx]
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         candle_idx = self.valid_idx[idx]
 
@@ -204,10 +380,19 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
             # Fallback: compute on-the-fly (slow, ~3-5 sec per sample)
             market_features_np = self._extract_market_features(candle, candle_idx)
             market_features = torch.from_numpy(market_features_np).float()
+        market_features = self._normalize_market_features(market_features)
 
         # Articles (lookback window)
         article_indices = self._get_articles_for_candle(candle_idx)
+        article_indices = self._filter_article_indices_by_factor_confidence(article_indices)
         article_emb, article_meta, article_mask = self._extract_articles(article_indices, candle_idx)
+
+        if not torch.isfinite(market_features).all():
+            raise ValueError(f"Non-finite market_features at candle_idx={candle_idx}")
+        if not torch.isfinite(article_emb).all():
+            raise ValueError(f"Non-finite article_embeddings at candle_idx={candle_idx}")
+        if not torch.isfinite(article_meta).all():
+            raise ValueError(f"Non-finite article_metadata at candle_idx={candle_idx}")
 
         # Label candle: horizon_steps ahead (PDF Eq.50)
         # 1h → candle_idx+1, 4h → candle_idx+4
@@ -229,7 +414,7 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
         return {
             "market_features": market_features,  # Already tensor from precomputed or computed above
             "article_embeddings": article_emb,                                  # (K, 768)
-            "article_metadata": article_meta,                                   # (K, 4)
+            "article_metadata": article_meta,                                   # (K, 4) base or (K, 14) with entity_sentiment
             "article_mask": article_mask,  # ✅ Use computed mask (with padding 0s)
             "direction": torch.tensor(direction_label, dtype=torch.long),
             "factor": fac_labels,             # ✅ FIX #10: (K, C) tensor, not scalar
@@ -298,12 +483,12 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
         """Extract article embeddings + metadata, pad to articles_per_candle.
 
         article_metadata layout (per PDF Eq.8 + target-based FSA extension):
-          [0] recency_norm      - exponential decay over 1 week
-          [1] length_norm       - content length / 500 chars
-          [2] source_cred       - source credibility score [0, 1]
-          [3] novelty_norm      - temporal freshness (24h decay)
-          [4:14] entity_sent    - per-factor FinBERT sentiment [-1, +1]
-                                  (only if precomputed entity_sentiment provided)
+          [0] recency_norm  - linear decay over 24h window: 1.0 (just pub) → 0.0 (24h old)
+          [1] length_norm   - content length / max_source_length, clipped to [0, 1]
+          [2] source_cred   - corpus-frequency credibility: log(count+1)/log(max+1) ∈ [0,1]
+          [3] rank_norm     - relative recency rank in window: 1.0 (most recent) → 0.0 (oldest)
+          [4:14] entity_sent - per-factor FinBERT sentiment [-1, +1]
+                               (only if precomputed entity_sentiment provided)
         Total: 4 dims (base) or 14 dims (with target-based FSA)
         """
         K        = self.articles_per_candle
@@ -320,52 +505,41 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
                 # Meta should be: [recency_norm, length_norm, source_cred, novelty_norm]
                 article = self.article_meta.iloc[art_idx]
 
-                # Metadata 0: Recency (how fresh)
-                # Use exponential decay based on timestamp difference
+                # Metadata 0: Recency — linear decay over 24h lookback window.
+                # 1.0 = published at candle time, 0.0 = published 24h ago.
                 try:
-                    # ✅ FIX #8: Use bracket notation for pandas Series (more reliable)
-                    art_time = pd.Timestamp(article['timestamp'] if 'timestamp' in article.index else datetime.utcnow())
-                    # FIX: Use the current candle's timestamp, not undefined self.df/self.indices
+                    art_time    = pd.Timestamp(article['timestamp'] if 'timestamp' in article.index else datetime.utcnow())
                     candle_time = pd.Timestamp(self.candle_df.iloc[candle_idx]['timestamp'])
-                    age_hours = (candle_time - art_time).total_seconds() / 3600
-                    recency = max(0.0, 1.0 - (age_hours / 168))  # 1-week decay
-                except:
+                    age_hours   = (candle_time - art_time).total_seconds() / 3600
+                    recency     = max(0.0, 1.0 - (age_hours / 24))
+                except (TypeError, ValueError, KeyError):
                     recency = 0.5
 
                 meta[i, 0] = float(recency)
 
-                # Metadata 1: Length normalization (content length / max_len)
+                # Metadata 1: Length normalization — content length relative to corpus max.
                 try:
                     content_len = len(str(article['content'] if 'content' in article.index else ''))
-                except:
+                except (TypeError, AttributeError):
                     content_len = 0
-                length_norm = min(1.0, content_len / 500.0)  # Normalize by 500 chars
+                length_norm = min(1.0, content_len / 500.0)
                 meta[i, 1] = float(length_norm)
 
-                # Metadata 2: Source credibility (based on source name)
+                # Metadata 2: Source credibility — corpus-frequency log-normalized [0,1].
+                # Built in __init__ from article_meta; unknown sources default to 0.3.
                 try:
-                    source = str(article['source'] if 'source' in article.index else 'Unknown').lower()
-                except:
-                    source = 'Unknown'
-                source_cred_map = {
-                    'bitcoin magazine': 0.95, 'cointelegraph': 0.90,
-                    'decrypt': 0.85, 'reddit': 0.60, 'rss': 0.70,
-                    'coingecko': 0.80, 'newsbtc': 0.75
-                }
-                source_cred = next((v for k, v in source_cred_map.items() if k in source), 0.5)
+                    source = str(article['source'] if 'source' in article.index else '').lower().strip()
+                except (TypeError, AttributeError):
+                    source = ''
+                source_cred = self._source_cred_map.get(source, 0.3)
                 meta[i, 2] = float(source_cred)
 
-                # Metadata 3: Novelty (temporal recency: how fresh the article is)
-                # ✅ FIX #9: Changed from position-based (1.0 - i/K) to temporal recency
-                # Temporal decay: 1.0 for article published at candle time, 0.0 after 24 hours
-                try:
-                    article_time = pd.Timestamp(article.get('timestamp', datetime.utcnow()))
-                    candle_time = pd.Timestamp(self.candle_df.iloc[candle_idx]['timestamp'])
-                    age_hours = (candle_time - article_time).total_seconds() / 3600
-                    novelty = max(0.0, 1.0 - (age_hours / 24))  # Decay over 24 hours
-                except:
-                    novelty = 0.5
-                meta[i, 3] = float(novelty)
+                # Metadata 3: Relative rank within window (0=oldest, 1=most recent).
+                # Distinct from recency (dim 0) which is absolute age decay.
+                # Rank encodes ordering signal: is this among the freshest in the window?
+                n_valid = min(len(article_indices), K)
+                rank_score = float(n_valid - 1 - i) / max(n_valid - 1, 1)  # 1.0=most recent, 0.0=oldest
+                meta[i, 3] = float(rank_score)
 
                 # Metadata [4:14]: Target-based FSA entity sentiment (per factor)
                 # Only populated when entity_sentiment precomputed file is available.
@@ -389,10 +563,12 @@ class SAFEAlertDataset(torch.utils.data.Dataset):
         """
         p_exec = exec_candle['open'] if exec_candle is not None else label_candle['open']
         ret = (label_candle['close'] - p_exec) / p_exec
-        # Balanced thresholds: ~33% each class
-        if ret > 0.002:      # +0.2% threshold
+        # PDF Eq.51: horizon-dependent neutral band ε_h
+        # 15m: 0.1%, 1h: 0.2%, 4h: 0.5%, 24h: 1.0%
+        eps = self.epsilon_h
+        if ret > eps:
             return 2  # UP
-        elif ret < -0.002:   # -0.2% threshold
+        elif ret < -eps:
             return 0  # DOWN
         else:
             return 1  # NEUTRAL

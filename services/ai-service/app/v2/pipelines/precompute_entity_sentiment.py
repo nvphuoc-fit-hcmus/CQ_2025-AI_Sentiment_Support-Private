@@ -243,6 +243,7 @@ def main():
     script_dir    = Path(__file__).resolve().parent
     service_root  = script_dir.parent.parent.parent     # ai-service/
     default_data  = service_root / "training_data"
+    default_data_v2 = default_data / "v2"
 
     parser.add_argument(
         "--articles_path",
@@ -266,13 +267,14 @@ def main():
 
     # Resolve articles path
     if args.articles_path is None:
+        search_root = default_data_v2 if default_data_v2.exists() else default_data
         for candidate in ["articles_max.csv", "articles.csv"]:
-            p = default_data / candidate
+            p = search_root / candidate
             if p.exists():
                 args.articles_path = p
                 break
     if args.articles_path is None or not args.articles_path.exists():
-        print(f"[ERROR] articles_max.csv not found in {default_data}")
+        print(f"[ERROR] articles_max.csv not found in {search_root}")
         sys.exit(1)
 
     if args.output_dir is None:

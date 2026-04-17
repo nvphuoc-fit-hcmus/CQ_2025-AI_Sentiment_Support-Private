@@ -10,6 +10,7 @@ import torch
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from typing import Optional
 import json
 from collections import defaultdict
 
@@ -19,8 +20,9 @@ SCRIPT_DIR = SCRIPT_FILE.parent         # pipelines/
 V2_DIR = SCRIPT_DIR.parent              # v2/
 APP_DIR = V2_DIR.parent                 # app/
 WORK_DIR = APP_DIR.parent               # services/ai-service/
-ARTIFACT_DIR = WORK_DIR / "artifacts/v2"
-DATA_DIR = WORK_DIR / "training_data"
+DEFAULT_ARTIFACT_DIR = WORK_DIR / "artifacts/v2"
+DEFAULT_DATA_DIR = WORK_DIR / "training_data"
+DEFAULT_DATA_DIR_V2 = DEFAULT_DATA_DIR / "v2"
 
 # Constants per PDF
 INITIAL_CAPITAL = 10000  # Initial portfolio
@@ -29,51 +31,57 @@ SLIPPAGE = 0.0005         # 0.05% slippage per trade (PDF Section 4.2.4)
 SHARPE_RF = 0.02          # Risk-free rate 2%
 
 
-def load_model(device="cpu"):
-    """Load best trained model (epoch20 with val_loss=1.0980)."""
+def _find_checkpoint(artifact_dir: Path, symbol: str, horizon: str) -> Optional[Path]:
+    symbol = symbol.lower()
+    horizon = horizon.lower()
+
+    candidates = []
+    candidates.append(artifact_dir / f"safe_alert_{symbol}_{horizon}_FINAL.pt")
+    candidates.append(artifact_dir / f"safe_alert_{horizon}_FINAL.pt")
+    candidates.extend(sorted(artifact_dir.glob(f"safe_alert_{horizon}_best_epoch*.pt")))
+    candidates.extend(sorted(artifact_dir.glob("safe_alert_*_best_epoch*.pt")))
+    candidates.extend(sorted(artifact_dir.glob(f"safe_alert_{symbol}_{horizon}_stage3_epoch*.pt")))
+    candidates.extend(sorted(artifact_dir.glob("safe_alert_*_stage3_epoch*.pt")))
+    candidates.extend(sorted(artifact_dir.glob("safe_alert_*.pt")))
+
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def load_model(artifact_dir: Path, symbol: str, horizon: str, device: str = "cpu"):
+    """Load best trained model from the chosen artifact directory."""
     import sys
     sys.path.insert(0, str(WORK_DIR))
 
     from app.v2.models.safe_alert_net import SAFEAlertNet
 
-    # Load FINAL model (best by model_score from Stage 3, saved by train_safe_alert.py)
-    final_path = ARTIFACT_DIR / "safe_alert_btcusdt_1h_FINAL.pt"
-    if final_path.exists():
-        ckpt_path = final_path
-        print(f"[OK] Loading FINAL model (best by model_score): {ckpt_path.name}")
-    else:
-        # Fallback: find best-epoch checkpoint from Stage 3
-        best_files = sorted(ARTIFACT_DIR.glob("safe_alert_btcusdt_1h_best_epoch*.pt"))
-        if best_files:
-            ckpt_path = best_files[-1]
-            print(f"[OK] Loading best-epoch checkpoint: {ckpt_path.name}")
-        else:
-            # Last resort: highest epoch
-            epoch_files = sorted(ARTIFACT_DIR.glob("safe_alert_btcusdt_1h_stage3_epoch*.pt"),
-                                 key=lambda x: int(x.stem.split("epoch")[-1]))
-            if not epoch_files:
-                epoch_files = sorted(ARTIFACT_DIR.glob("safe_alert_btcusdt_1h_*.pt"))
-            if epoch_files:
-                ckpt_path = epoch_files[-1]
-                print(f"[WARN] FINAL model not found, using: {ckpt_path.name}")
-            else:
-                print("[ERROR] No checkpoints found in artifacts/v2/")
-                return None
+    ckpt_path = _find_checkpoint(artifact_dir, symbol, horizon)
+    if ckpt_path is None:
+        print(f"[ERROR] No checkpoints found in {artifact_dir}")
+        return None
+    print(f"[OK] Loading checkpoint: {ckpt_path.name}")
 
     if not ckpt_path.exists():
         print(f"[ERROR] Checkpoint not found: {ckpt_path.name}")
         return None
 
     # Load weights
-    checkpoint = torch.load(ckpt_path, map_location=device)
+    # PyTorch >=2.6 defaults to weights_only=True. Use weights_only=False for trusted local checkpoints.
+    try:
+        checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)
+    except TypeError:
+        checkpoint = torch.load(ckpt_path, map_location=device)
 
     # CRITICAL: architecture must EXACTLY match training config in train_safe_alert.py main()
-    # train uses: SAFEAlertNet(market_dim=63, has_news=True, K_1h=4, K_4h=5)
+    # train uses: SAFEAlertNet(market_dim=63, has_news=True, K_15m=3, K_1h=4, K_4h=5)
     # article_dim=128 (internal encoding dim, NOT FinBERT 768 — that's input size)
     model = SAFEAlertNet(
         market_dim=63,
         article_dim=128,    # internal encoding dim (matches training default)
         has_news=True,
+        K_15m=3,            # matches train_safe_alert.py main() K_15m=3
         K_1h=4,             # matches train_safe_alert.py main() K_1h=4
         K_4h=5,             # matches train_safe_alert.py main() K_4h=5
     )
@@ -133,11 +141,36 @@ def compute_metrics(returns: np.ndarray, daily_returns: np.ndarray = None):
     }
 
 
+def _load_policy(artifact_dir: Path, symbol: str, horizon: str, policy_json: Optional[Path]) -> Optional[dict]:
+    if policy_json is not None and policy_json.exists():
+        with open(policy_json, "r") as f:
+            return json.load(f)
+
+    # Try common policy filenames in artifact_dir
+    candidates = [
+        artifact_dir / f"safe_alert_policy_{symbol.lower()}_{horizon}.json",
+        artifact_dir / f"safe_alert_{symbol.lower()}_{horizon}_policy.json",
+        artifact_dir / "safe_alert_policy_btcusdt_1h.json",
+        artifact_dir / "safe_alert_btcusdt_1h_policy.json",
+    ]
+    for path in candidates:
+        if path.exists():
+            with open(path, "r") as f:
+                return json.load(f)
+    return None
+
+
+def _softmax(logits: np.ndarray) -> np.ndarray:
+    logits = logits - np.max(logits, axis=-1, keepdims=True)
+    exp = np.exp(logits)
+    return exp / np.sum(exp, axis=-1, keepdims=True)
+
+
 def simulate_trades(signals: np.ndarray, returns: np.ndarray):
     """
     Simulate trading based on signals.
 
-    signals: (N,) array of {0=no_trade, 1=BUY, -1=SELL}
+    signals: (N,) array of {1=BUY, 0=HOLD, -1=SELL}
     returns: (N,) array of next-candle returns
     """
     position = 0  # 0=flat, 1=long
@@ -155,14 +188,39 @@ def simulate_trades(signals: np.ndarray, returns: np.ndarray):
             position = 0
             pnl_list.append(-(TRANSACTION_COST + SLIPPAGE))  # Exit cost + slippage
 
-        # P&L if holding
+        # Mark-to-market P&L while holding a long position
         if position == 1:
             pnl_list.append(ret)
+        elif sig == 0:
+            pnl_list.append(0.0)
 
     return np.array(pnl_list)
 
 
-def backtest():
+def _resolve_data_dir(data_dir: Path) -> Path:
+    if data_dir == DEFAULT_DATA_DIR and DEFAULT_DATA_DIR_V2.exists():
+        return DEFAULT_DATA_DIR_V2
+    return data_dir
+
+
+def _select_candle_file(data_dir: Path, symbol: str, horizon: str) -> Path:
+    symbol_upper = symbol.upper()
+    if horizon.lower() == "1h":
+        v2 = data_dir / f"{symbol_upper}_1h_ohlcv.csv"
+        if v2.exists():
+            return v2
+    if horizon.lower() == "4h":
+        v2 = data_dir / f"{symbol_upper}_4h_ohlcv.csv"
+        if v2.exists():
+            return v2
+    # Fallbacks
+    candles_max = data_dir / "candles_max.csv"
+    if candles_max.exists():
+        return candles_max
+    return data_dir / f"{symbol.lower()}_training_dataset_v2.csv"
+
+
+def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str, policy_json: Optional[Path] = None):
     """Run backtest on test set with REAL model predictions."""
 
     print("\n" + "="*70)
@@ -170,9 +228,11 @@ def backtest():
     print("="*70)
 
     device = "cpu"
-    model = load_model(device)
+    model = load_model(artifact_dir, symbol, horizon, device=device)
     if model is None:
         raise RuntimeError("[ERROR] Failed to load model. Cannot backtest without model.")
+
+    data_dir = _resolve_data_dir(data_dir)
 
     # Load test data
     print("\n[*] Loading test set data...")
@@ -181,16 +241,29 @@ def backtest():
     from v2.pipelines.safe_alert_dataset import SAFEAlertDataset  # FIXED: Correct class name
 
     # Load data files
-    print(f"[*] Loading candles from {DATA_DIR}...")
-    candle_df = pd.read_csv(DATA_DIR / "candles_max.csv")
+    candle_path = _select_candle_file(data_dir, symbol, horizon)
+    print(f"[*] Loading candles from {candle_path}...")
+    candle_df = pd.read_csv(candle_path)
     candle_df['timestamp'] = pd.to_datetime(candle_df['timestamp'])
 
     print(f"[*] Loading embeddings...")
-    article_embeddings = np.load(DATA_DIR / "btcusdt_article_embeddings_max.npy")
+    article_embeddings = np.load(data_dir / "btcusdt_article_embeddings_max.npy")
 
     print(f"[*] Loading articles metadata...")
-    articles_df = pd.read_csv(DATA_DIR / "articles_max.csv")
+    articles_df = pd.read_csv(data_dir / "articles_max.csv")
     articles_df['timestamp'] = pd.to_datetime(articles_df['timestamp'])
+
+    factor_labels = None
+    factor_path = data_dir / "article_factor_labels.npy"
+    if factor_path.exists():
+        print("[*] Loading factor labels...")
+        factor_labels = np.load(factor_path)
+
+    entity_sentiment = None
+    entity_path = data_dir / "article_entity_sentiment.npy"
+    if entity_path.exists():
+        print("[*] Loading entity sentiment (FSA)...")
+        entity_sentiment = np.load(entity_path)
 
     # Create dataset to get test split (FIXED: correct constructor)
     try:
@@ -199,8 +272,10 @@ def backtest():
             article_embeddings=article_embeddings,
             article_meta=articles_df,
             article_to_candle={},
-            symbol="BTCUSDT",
-            horizon="1h",
+            factor_labels=factor_labels,
+            entity_sentiment=entity_sentiment,
+            symbol=symbol,
+            horizon=horizon,
             articles_per_candle=8,
         )
     except Exception as e:
@@ -213,10 +288,19 @@ def backtest():
 
     print(f"[OK] Dataset size: {n_total}, test set: {n_test} samples")
 
+    policy = _load_policy(artifact_dir, symbol, horizon, policy_json)
+    if policy:
+        print(f"[OK] Loaded policy: tau={policy.get('tau')} gamma={policy.get('gamma')} "
+              f"temp={policy.get('temperature', 1.0)}")
+    else:
+        print("[WARN] No policy JSON found; falling back to always-alert signals.")
+
     # Run model inference on test set
     print("\n[*] Running model inference on test set...")
     model.eval()
     all_predictions = []
+    all_confidence = []
+    all_max_prob = []
     all_returns = []
 
     with torch.no_grad():
@@ -241,7 +325,7 @@ def backtest():
                 # Get prediction
                 pred_dict = model(
                     market_feat=market_feat,
-                    horizon="1h",
+                    horizon=horizon,
                     article_emb=article_emb,
                     article_mask=article_mask,
                     article_meta_vec=article_meta
@@ -249,8 +333,16 @@ def backtest():
 
                 dir_logits = pred_dict['dir_logits']  # Shape: (1, 3)
                 direction_pred = torch.argmax(dir_logits, dim=1).item()  # 0=DOWN, 1=NEUTRAL, 2=UP
+                confidence = float(pred_dict.get("confidence", torch.tensor([0.0])).view(-1)[0].item())
+
+                temperature = float(policy.get("temperature", 1.0)) if policy else 1.0
+                logits_np = dir_logits.detach().cpu().numpy() / max(temperature, 1e-6)
+                probs = _softmax(logits_np)[0]
+                max_prob = float(np.max(probs))
 
                 all_predictions.append(direction_pred)
+                all_confidence.append(confidence)
+                all_max_prob.append(max_prob)
 
             except Exception as e:
                 print(f"[WARN] Sample {i} failed: {e}, skipping")
@@ -263,12 +355,21 @@ def backtest():
         )
 
     all_predictions = np.array(all_predictions)
+    all_confidence = np.array(all_confidence)
+    all_max_prob = np.array(all_max_prob)
     all_returns = np.array(all_returns[:len(all_predictions)])  # Align lengths
 
     print(f"[OK] Generated {len(all_predictions)} predictions")
 
-    # Convert to trading signals: UP -> BUY (+1), else -> SELL (-1)
-    signals = np.where(all_predictions == 2, 1, -1)
+    # Convert model classes to trading signals with policy thresholds (Eq.26)
+    if policy:
+        tau = float(policy.get("tau", 1.0))
+        gamma = float(policy.get("gamma", 1.0))
+        alert_mask = (all_confidence >= tau) & (all_max_prob >= gamma)
+        signals = np.where(alert_mask, np.where(all_predictions == 2, 1, np.where(all_predictions == 0, -1, 0)), 0)
+        print(f"[OK] Alert coverage: {alert_mask.mean():.4f} (tau={tau:.4f}, gamma={gamma:.4f})")
+    else:
+        signals = np.where(all_predictions == 2, 1, np.where(all_predictions == 0, -1, 0))
 
     # Strategy PnL with real returns
     strategy_pnl = simulate_trades(signals, all_returns)
@@ -309,7 +410,7 @@ def backtest():
     })
 
     # Save tables
-    output_dir = ARTIFACT_DIR / "backtest_results"
+    output_dir = artifact_dir / "backtest_results"
     output_dir.mkdir(parents=True, exist_ok=True)  # ✅ Added parents=True
 
     table3.to_csv(output_dir / "table3_comparison.csv")
@@ -334,14 +435,29 @@ def backtest():
         }
     }
 
-    with open(ARTIFACT_DIR / "backtest_metrics.json", "w") as f:
+    with open(artifact_dir / "backtest_metrics.json", "w") as f:
         json.dump(metrics_json, f, indent=2)
 
-    print(f"\n  - {ARTIFACT_DIR}/backtest_metrics.json")
+    print(f"\n  - {artifact_dir}/backtest_metrics.json")
 
     print("\n[COMPLETE] Real backtest done!")
     return table3, table4, table5
 
 
 if __name__ == "__main__":
-    backtest()
+    from argparse import ArgumentParser
+
+    parser = ArgumentParser(description="Backtest SAFE-Alert on test split (real inference)")
+    parser.add_argument("--artifact_dir", type=Path, default=DEFAULT_ARTIFACT_DIR,
+                        help="Artifacts directory containing trained checkpoints")
+    parser.add_argument("--data_dir", type=Path, default=DEFAULT_DATA_DIR,
+                        help="Training data directory (candles/articles/embeddings)")
+    parser.add_argument("--symbol", type=str, default="BTCUSDT",
+                        help="Symbol used for checkpoint name resolution")
+    parser.add_argument("--horizon", type=str, default="1h",
+                        help="Horizon used for checkpoint name resolution")
+    parser.add_argument("--policy_json", type=Path, default=None,
+                        help="Optional policy JSON with tau/gamma/temperature")
+
+    args = parser.parse_args()
+    backtest(args.artifact_dir, args.data_dir, args.symbol, args.horizon, args.policy_json)

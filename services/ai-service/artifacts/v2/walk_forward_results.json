@@ -1,38 +1,241 @@
 {
-  "n_folds": 4,
-  "dataset_len": 14189,
-  "test_start": 12060,
-  "epochs_per_fold": 40,
+  "n_folds": 5,
+  "dataset_len": 14187,
+  "protocol": "expanding_window_train_val_test_with_embargo",
+  "embargo_steps": 24,
+  "epochs_per_fold": 60,
   "fold_metrics": [
     {
-      "final_epoch": 35,
-      "final_val_loss": 2.3367333643000068,
-      "final_val_acc": 0.35610079575596815,
-      "total_epochs_trained": 35,
-      "model_file": "safe_alert_1h_FINAL.pt",
-      "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+      "fold": 1,
+      "train_range": [
+        0,
+        5673
+      ],
+      "val_range": [
+        5698,
+        6524
+      ],
+      "test_range": [
+        6549,
+        7375
+      ],
+      "train_size": 5674,
+      "val_size": 827,
+      "test_size": 827,
+      "fit": {
+        "final_epoch": 44,
+        "final_val_loss": 1.9693980801563997,
+        "final_val_acc": 0.40544871813975847,
+        "total_epochs_trained": 44,
+        "model_file": "safe_alert_1h_FINAL.pt",
+        "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+      },
+      "val": {
+        "final_val_loss": 1.9693980801563997,
+        "final_val_acc": 0.40544871813975847,
+        "tau": 0.47916823625564575,
+        "gamma": 0.4549213647842407
+      },
+      "test": {
+        "loss": 1.8723348069649477,
+        "dir_acc": 0.5336538461538461,
+        "macro_f1": 0.4083321325426588,
+        "mcc": 0.129563354007273,
+        "ece": 0.08771557178001449,
+        "auc": 0.5680394498921597,
+        "alert_precision": 0.6407407522201538,
+        "alert_coverage": 0.3264812575574365,
+        "alert_sharpe": 0.04870177060365677,
+        "model_score": 0.21517649443353593
+      }
     },
     {
-      "final_epoch": 32,
-      "final_val_loss": 2.2855888589307547,
-      "final_val_acc": 0.43449223191731806,
-      "total_epochs_trained": 32,
-      "model_file": "safe_alert_1h_FINAL.pt",
-      "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+      "fold": 2,
+      "train_range": [
+        0,
+        7375
+      ],
+      "val_range": [
+        7400,
+        8226
+      ],
+      "test_range": [
+        8251,
+        9077
+      ],
+      "train_size": 7376,
+      "val_size": 827,
+      "test_size": 827,
+      "fit": {
+        "final_epoch": 45,
+        "final_val_loss": 1.897011019862615,
+        "final_val_acc": 0.4395032052237254,
+        "total_epochs_trained": 45,
+        "model_file": "safe_alert_1h_FINAL.pt",
+        "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+      },
+      "val": {
+        "final_val_loss": 1.897011019862615,
+        "final_val_acc": 0.4395032052237254,
+        "tau": 0.473817378282547,
+        "gamma": 0.46039682626724243
+      },
+      "test": {
+        "loss": 1.8633204354689672,
+        "dir_acc": 0.4395032052237254,
+        "macro_f1": 0.396598409471346,
+        "mcc": 0.10245768047922431,
+        "ece": 0.039356743806506875,
+        "auc": 0.5814892110677299,
+        "alert_precision": 0.5913978219032288,
+        "alert_coverage": 0.2249093107617896,
+        "alert_sharpe": 0.040249865502119064,
+        "model_score": 0.2149024625181299
+      }
     },
     {
-      "final_epoch": 34,
-      "final_val_loss": 2.471146005218162,
-      "final_val_acc": 0.5758336491546833,
-      "total_epochs_trained": 34,
-      "model_file": "safe_alert_1h_FINAL.pt",
-      "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+      "fold": 3,
+      "train_range": [
+        0,
+        9077
+      ],
+      "val_range": [
+        9102,
+        9928
+      ],
+      "test_range": [
+        9953,
+        10779
+      ],
+      "train_size": 9078,
+      "val_size": 827,
+      "test_size": 827,
+      "fit": {
+        "final_epoch": 42,
+        "final_val_loss": 1.9043327925296931,
+        "final_val_acc": 0.42027243599295616,
+        "total_epochs_trained": 42,
+        "model_file": "safe_alert_1h_FINAL.pt",
+        "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+      },
+      "val": {
+        "final_val_loss": 1.9043327925296931,
+        "final_val_acc": 0.42027243599295616,
+        "tau": 0.5136185884475708,
+        "gamma": 0.45482924580574036
+      },
+      "test": {
+        "loss": 1.6973842256344283,
+        "dir_acc": 0.6466346153846154,
+        "macro_f1": 0.41024742081253135,
+        "mcc": 0.1596846291063871,
+        "ece": 0.08666690502950906,
+        "auc": 0.6428421437494108,
+        "alert_precision": 0.7724425792694092,
+        "alert_coverage": 0.5792019347037485,
+        "alert_sharpe": 0.0739627406001091,
+        "model_score": 0.22202664325839563
+      }
+    },
+    {
+      "fold": 4,
+      "train_range": [
+        0,
+        10779
+      ],
+      "val_range": [
+        10804,
+        11630
+      ],
+      "test_range": [
+        11655,
+        12481
+      ],
+      "train_size": 10780,
+      "val_size": 827,
+      "test_size": 827,
+      "fit": {
+        "final_epoch": 45,
+        "final_val_loss": 1.6550307755286877,
+        "final_val_acc": 0.6634615384615384,
+        "total_epochs_trained": 45,
+        "model_file": "safe_alert_1h_FINAL.pt",
+        "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+      },
+      "val": {
+        "final_val_loss": 1.6550307755286877,
+        "final_val_acc": 0.6634615384615384,
+        "tau": 0.7019792199134827,
+        "gamma": 0.6002898216247559
+      },
+      "test": {
+        "loss": 1.6999929971419847,
+        "dir_acc": 0.6610576923076923,
+        "macro_f1": 0.4261190217158272,
+        "mcc": 0.2002815539632868,
+        "ece": 0.05966619741815754,
+        "auc": 0.6603009605702331,
+        "alert_precision": 0.8514056205749512,
+        "alert_coverage": 0.3010882708585248,
+        "alert_sharpe": 0.10993830859661102,
+        "model_score": 0.24075096077617852
+      }
+    },
+    {
+      "fold": 5,
+      "train_range": [
+        0,
+        12481
+      ],
+      "val_range": [
+        12506,
+        13332
+      ],
+      "test_range": [
+        13357,
+        14183
+      ],
+      "train_size": 12482,
+      "val_size": 827,
+      "test_size": 827,
+      "fit": {
+        "final_epoch": 41,
+        "final_val_loss": 1.8549130329718957,
+        "final_val_acc": 0.5340544873705277,
+        "total_epochs_trained": 41,
+        "model_file": "safe_alert_1h_FINAL.pt",
+        "note": "FINAL model from Stage 3 optimizes Sharpe (Lrisk), not accuracy!"
+      },
+      "val": {
+        "final_val_loss": 1.8549130329718957,
+        "final_val_acc": 0.5340544873705277,
+        "tau": 0.5205111503601074,
+        "gamma": 0.5579948425292969
+      },
+      "test": {
+        "loss": 1.8690662074547548,
+        "dir_acc": 0.46354166676218694,
+        "macro_f1": 0.39994254676452323,
+        "mcc": 0.12341539171380236,
+        "ece": 0.05163064815257164,
+        "auc": 0.5888720005261138,
+        "alert_precision": 0.4375,
+        "alert_coverage": 0.03869407496977025,
+        "alert_sharpe": 0.0,
+        "model_score": 0.20840319106861366
+      }
     }
   ],
   "averages": {
-    "final_val_loss": 2.3644894094829745,
-    "final_val_acc": 0.45547555894265646,
-    "final_epoch": 33.666666666666664,
-    "total_epochs_trained": 33.666666666666664
+    "final_val_loss": 1.8561371402098583,
+    "final_val_acc": 0.4925480770377012,
+    "test_macro_f1": 0.4082479062613773,
+    "test_mcc": 0.14308052185399472,
+    "test_ece": 0.06500721323735192,
+    "test_auc": 0.6083087531611294,
+    "test_alert_precision": 0.6586973547935486,
+    "test_alert_coverage": 0.29407496977025394,
+    "test_alert_sharpe": 0.05457053706049919,
+    "test_model_score": 0.22025195041097073
   }
 }

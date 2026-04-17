@@ -205,6 +205,16 @@ def _v2_result_to_kafka_payload(sym: str, result: dict) -> dict:
                         "volatility":     volatility,
                         "prob_up":        round(prob_1h, 4),
                     },
+                    "next_4h": {
+                        "direction":           signal_to_direction(sig_4h),
+                        "expected_price":      exp_4h,
+                        "price_change_percent": round(chg_4h, 2),
+                        "expected_range": {
+                            "low":  round(min(current_price, exp_4h) * 0.98, 2),
+                            "high": round(max(current_price, exp_4h) * 1.02, 2),
+                        },
+                        "confidence": round(conf_4h * 100, 1),
+                    },
                     "next_24h": {
                         "direction":           signal_to_direction(sig_4h),
                         "expected_price":      exp_4h,
@@ -214,6 +224,7 @@ def _v2_result_to_kafka_payload(sym: str, result: dict) -> dict:
                             "high": round(max(current_price, exp_4h) * 1.02, 2),
                         },
                         "confidence": round(conf_4h * 100, 1),
+                        "note": "Backward-compatible alias of next_4h.",
                     },
                 },
                 "causal_analysis": {
@@ -298,8 +309,8 @@ def v2_signal_live(symbol: str):
     """
     SAFE-Alert v2: Run live inference for a symbol.
 
-    Flow: market_cache → features → XGB+LGB+RF+LSTM+Stacking → alert.
-    Response time: ~2-5 seconds (SHAP extraction is the bottleneck).
+    Flow: market_cache → features → SAFEAlertNet → Eq.26 alert decision.
+    Response time: ~2-5 seconds depending on market/news availability.
     """
     sym = symbol.upper()
     if sym not in SUPPORTED_SYMBOLS:

@@ -38,6 +38,7 @@ USE_FINBERT = os.getenv("USE_FINBERT", "0").strip() in ("1", "true", "yes")
 CURRENT_FILE  = Path(__file__).resolve()
 PIPELINES_DIR = CURRENT_FILE.parent
 V2_DIR        = PIPELINES_DIR.parent
+SERVICE_ROOT  = V2_DIR.parent.parent
 APP_DIR       = V2_DIR.parent
 SERVICE_ROOT  = APP_DIR.parent
 
@@ -50,10 +51,13 @@ from preprocessing.market_features import (
     build_market_features,
     extract_multiframe_market_features,  # NEW: For true 5-timeframe support
 )
-from preprocessing.news_features import add_nlp_scores, aggregate_nlp_window
+from preprocessing.news_features import add_nlp_scores, aggregate_nlp_window, get_vader_score
+from nlp.news_selector import aggregate_selected_news_features, select_news_for_horizon
 from nlp.relevance_scorer import add_relevance_scores
-from nlp.news_selector import aggregate_selected_news_features
+from alerts.alert_decider import decide_alert_multimodal_eq26
 from pipelines.utils import ARTIFACT_DIR, load_safe_alert_policy
+from models.safe_alert_net import FACTOR_KEYWORDS, FACTOR_NAMES, META_DIM
+from pipelines.precompute_factor_labels import compute_factor_probs_for_article
 
 logger = logging.getLogger("v2.live_infer")
 
@@ -61,6 +65,11 @@ logger = logging.getLogger("v2.live_infer")
 _SAFE_ALERT_MODELS: dict = {}   # cache: (symbol, horizon) -> SAFEAlertNet instance
 _SAFE_ALERT_MARKET_DIM = 63
 _SAFE_ALERT_MAX_ARTICLES = 8    # K_max articles per inference call
+_RUNTIME_EMBEDDER = None
+_FACTOR_LABEL_CACHE = None
+_ENTITY_SENT_CACHE = None
+_FACTOR_URL_MAP = None
+_FACTOR_TITLE_TS_MAP = None
 
 # ── Config ──────────────────────────────────────────────────────
 NLP_LAGS          = [1, 2, 3]          # lag cols: vader_mean_lag1-3 etc.
@@ -73,6 +82,204 @@ DROP_COLS = {
     "target_return_1h", "target_return_4h",
     "target_direction_1h", "target_direction_4h",
 }
+
+
+class _FinBertEmbedder:
+    """Lazy runtime embedder for live articles."""
+
+    MODEL_NAME = "ProsusAI/finbert"
+
+    def __init__(self) -> None:
+        self._tokenizer = None
+        self._model = None
+        self._device = None
+
+    def _load(self) -> bool:
+        if self._model is not None:
+            return True
+        try:
+            import torch
+            from transformers import AutoModel, AutoTokenizer
+            self._device = "cuda" if torch.cuda.is_available() else "cpu"
+            self._tokenizer = AutoTokenizer.from_pretrained(self.MODEL_NAME)
+            self._model = AutoModel.from_pretrained(self.MODEL_NAME).to(self._device).eval()
+            return True
+        except Exception as exc:
+            logger.warning("Runtime FinBERT embedding unavailable: %s", exc)
+            self._tokenizer = None
+            self._model = None
+            return False
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        if not texts:
+            return np.zeros((0, 768), dtype=np.float32)
+        if not self._load():
+            return np.zeros((len(texts), 768), dtype=np.float32)
+
+        try:
+            import torch
+            clean = [t[:512] if isinstance(t, str) else "" for t in texts]
+            inputs = self._tokenizer(
+                clean,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=512,
+            )
+            inputs = {k: v.to(self._device) for k, v in inputs.items()}
+            with torch.no_grad():
+                out = self._model(**inputs)
+            emb = out.last_hidden_state[:, 0, :].cpu().numpy().astype(np.float32)
+            norms = np.linalg.norm(emb, axis=1, keepdims=True) + 1e-8
+            return emb / norms
+        except Exception as exc:
+            logger.warning("Runtime article embedding failed: %s", exc)
+            return np.zeros((len(texts), 768), dtype=np.float32)
+
+
+def _get_runtime_embedder() -> _FinBertEmbedder:
+    global _RUNTIME_EMBEDDER
+    if _RUNTIME_EMBEDDER is None:
+        _RUNTIME_EMBEDDER = _FinBertEmbedder()
+    return _RUNTIME_EMBEDDER
+
+
+def _estimate_entity_sentiment(title: str, content: str, source: str = "") -> np.ndarray:
+    """Approximate target-based factor sentiment in live mode.
+
+    Reuse the same factor scoring logic as pseudo-label precomputation so the
+    live factor path stays closer to the train-time artifact path. The result is
+    still lightweight, but much less ad-hoc than broadcasting one sentiment
+    score to every matched factor.
+    """
+    text = f"{title} {content}".strip()
+    overall = float(get_vader_score(text))
+    factor_probs = _infer_factor_distribution(title, content, source)
+    return (factor_probs * overall).astype(np.float32)
+
+
+def _infer_factor_distribution(title: str, content: str, source: str = "") -> np.ndarray:
+    """Infer factor relevance using the same article-level scorer as precompute."""
+    probs, _ = compute_factor_probs_for_article(
+        title=title,
+        content=content,
+        source=source,
+        deterministic_prior=True,
+    )
+    return probs.astype(np.float32)
+
+
+def _load_factor_label_cache() -> None:
+    """Load precomputed factor labels for live lookup by url/title+date."""
+    global _FACTOR_LABEL_CACHE, _ENTITY_SENT_CACHE, _FACTOR_URL_MAP, _FACTOR_TITLE_TS_MAP
+    if _FACTOR_LABEL_CACHE is not None and _FACTOR_URL_MAP is not None:
+        return
+    try:
+        training_dir = SERVICE_ROOT / "training_data"
+        training_v2 = training_dir / "v2"
+        if training_v2.exists():
+            training_dir = training_v2
+        labels_path = training_dir / "article_factor_labels.npy"
+        entities_path = training_dir / "article_entity_sentiment.npy"
+        meta_path = training_dir / "articles_max.csv"
+        if not labels_path.exists() or not meta_path.exists():
+            return
+        labels = np.load(labels_path)
+        entities = np.load(entities_path) if entities_path.exists() else None
+        meta = pd.read_csv(meta_path)
+        if labels.shape[0] != len(meta):
+            return
+        url_map = {}
+        title_ts_map = {}
+        for i, row in meta.iterrows():
+            url = str(row.get("url", "")).strip()
+            if url:
+                url_map[url] = i
+            title = str(row.get("title", "")).strip().lower()
+            ts_raw = row.get("timestamp", "")
+            date_key = ""
+            try:
+                ts = pd.to_datetime(ts_raw, errors="coerce")
+                if not pd.isna(ts):
+                    date_key = ts.date().isoformat()
+            except Exception:
+                date_key = ""
+            if title:
+                key = f"{title}|{date_key}" if date_key else title
+                title_ts_map[key] = i
+        _FACTOR_LABEL_CACHE = labels.astype(np.float32)
+        _ENTITY_SENT_CACHE = entities.astype(np.float32) if entities is not None else None
+        _FACTOR_URL_MAP = url_map
+        _FACTOR_TITLE_TS_MAP = title_ts_map
+    except Exception:
+        _FACTOR_LABEL_CACHE = None
+        _ENTITY_SENT_CACHE = None
+        _FACTOR_URL_MAP = None
+        _FACTOR_TITLE_TS_MAP = None
+
+
+def _lookup_factor_cache(row: pd.Series) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Return (factor_probs, entity_sent) from precomputed cache if possible."""
+    _load_factor_label_cache()
+    if _FACTOR_LABEL_CACHE is None or _FACTOR_URL_MAP is None:
+        return None, None
+    idx = None
+    url = str(row.get("url", "")).strip()
+    if url and url in _FACTOR_URL_MAP:
+        idx = _FACTOR_URL_MAP[url]
+    if idx is None:
+        title = str(row.get("title", "")).strip().lower()
+        date_key = ""
+        ts_raw = row.get("published_at", row.get("created_at", ""))
+        try:
+            ts = pd.to_datetime(ts_raw, errors="coerce")
+            if not pd.isna(ts):
+                date_key = ts.date().isoformat()
+        except Exception:
+            date_key = ""
+        if title:
+            key = f"{title}|{date_key}" if date_key else title
+            idx = _FACTOR_TITLE_TS_MAP.get(key)
+    if idx is None:
+        return None, None
+    fac = _FACTOR_LABEL_CACHE[idx]
+    ent = _ENTITY_SENT_CACHE[idx] if _ENTITY_SENT_CACHE is not None else None
+    return fac, ent
+
+
+def _try_parse_factor_vector(row: pd.Series, keys: list[str], expected_dim: int) -> np.ndarray | None:
+    """Parse factor vectors from row fields when upstream precompute provides them."""
+    for key in keys:
+        if key not in row:
+            continue
+        raw = row.get(key)
+        if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+            continue
+        vec = None
+        if isinstance(raw, (list, np.ndarray)):
+            vec = np.asarray(raw, dtype=np.float32)
+        elif isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+                vec = np.asarray(parsed, dtype=np.float32)
+            except Exception:
+                vec = None
+        if vec is None or vec.ndim != 1:
+            continue
+        if vec.shape[0] < expected_dim:
+            vec = np.pad(vec, (0, expected_dim - vec.shape[0]))
+        elif vec.shape[0] > expected_dim:
+            vec = vec[:expected_dim]
+        return vec.astype(np.float32)
+    return None
+
+
+def _temperature_softmax(logits, temperature: float):
+    """Apply scalar temperature scaling to logits for calibrated live decisions."""
+    import torch
+
+    temp = max(float(temperature), 1e-3)
+    return torch.softmax(logits / temp, dim=-1)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -97,7 +304,11 @@ def _empty_nlp() -> dict:
     }
 
 
-def _fetch_news_mongodb(symbol: str, hours: int = NEWS_LOOKBACK_H) -> pd.DataFrame:
+def _fetch_news_mongodb(
+    symbol: str,
+    hours: int = NEWS_LOOKBACK_H,
+    reference_time: datetime | pd.Timestamp | None = None,
+) -> pd.DataFrame:
     """Fetch recent news from MongoDB. Returns empty DataFrame on failure."""
     try:
         import pymongo
@@ -106,17 +317,25 @@ def _fetch_news_mongodb(symbol: str, hours: int = NEWS_LOOKBACK_H) -> pd.DataFra
         client = pymongo.MongoClient(mongo_url, serverSelectionTimeoutMS=3_000)
         db     = client[mongo_db]
 
-        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        if reference_time is None:
+            ref_ts = datetime.now(timezone.utc)
+        else:
+            ref_ts = pd.Timestamp(reference_time)
+            ref_ts = ref_ts.tz_localize("UTC") if ref_ts.tzinfo is None else ref_ts.tz_convert("UTC")
+            ref_ts = ref_ts.to_pydatetime()
+
+        since = ref_ts - timedelta(hours=hours)
         # Filter by symbol when stored (news_crawler sets this); also accept
         # docs without symbol field (crawler-service doesn't always set it).
         sym_filter = {"$or": [{"symbol": symbol}, {"symbol": {"$exists": False}}, {"symbol": None}]}
-        query = {"created_at": {"$gte": since}, **sym_filter}
+        query = {"created_at": {"$gte": since, "$lt": ref_ts}, **sym_filter}
         docs  = list(
             db["news_articles"].find(
                 query,
                 {"_id": 0, "title": 1, "content": 1, "source": 1,
                  "created_at": 1, "published_at": 1,
-                 "sentiment_score": 1, "sentiment": 1}
+                 "sentiment_score": 1, "sentiment": 1,
+                 "url": 1, "article_id": 1, "id": 1}
             ).limit(500)
         )
         if not docs:
@@ -332,7 +551,7 @@ def build_live_feature_df(symbol: str, news_df: pd.DataFrame | None = None) -> t
 
     # ── 3. Fetch news ──────────────────────────────────────────
     if news_df is None:
-        news_df = _fetch_news_mongodb(symbol, hours=NEWS_LOOKBACK_H)
+        news_df = _fetch_news_mongodb(symbol, hours=NEWS_LOOKBACK_H, reference_time=df["timestamp_dt"].iloc[-1])
 
     # Ensure UTC timestamps
     if not news_df.empty:
@@ -424,8 +643,7 @@ def _load_safe_alert_net(symbol: str, horizon: str):
         # Fallback: search fold subdirectories (newest fold first, e.g. fold_3, fold_2, fold_1)
         fold_dirs = sorted(ARTIFACT_DIR.glob("fold_*"), reverse=True)
         for fold_dir in fold_dirs:
-            for fname in [f"safe_alert_{horizon}_FINAL.pt",
-                          f"safe_alert_1h_FINAL.pt"]:  # 1h as secondary fallback
+            for fname in [f"safe_alert_{horizon}_FINAL.pt"]:
                 p = fold_dir / fname
                 if p.exists():
                     ckpt_path = p
@@ -433,18 +651,6 @@ def _load_safe_alert_net(symbol: str, horizon: str):
                     break
             if ckpt_path is not None:
                 break
-
-    if ckpt_path is None:
-        # Final fallback: try 1h model when 4h not found (root artifacts dir)
-        if horizon == "4h":
-            print(f"[live_infer] 4h model not found, falling back to 1h model...")
-            for p in [
-                ARTIFACT_DIR / f"safe_alert_{sym}_1h_FINAL.pt",
-                *sorted(ARTIFACT_DIR.glob(f"safe_alert_{sym}_1h_best_epoch*.pt"), reverse=True),
-            ]:
-                if isinstance(p, Path) and p.exists():
-                    ckpt_path = p
-                    break
 
     if ckpt_path is None:
         print(f"[live_infer] No checkpoint found for {symbol}/{horizon}")
@@ -457,8 +663,8 @@ def _load_safe_alert_net(symbol: str, horizon: str):
     try:
         import torch
         from models.safe_alert_net import SAFEAlertNet
-        print(f"[live_infer] Creating SAFEAlertNet (market_dim={_SAFE_ALERT_MARKET_DIM}, K_1h=4, K_4h=5)...")
-        model = SAFEAlertNet(market_dim=_SAFE_ALERT_MARKET_DIM, has_news=True, K_1h=4, K_4h=5)
+        print(f"[live_infer] Creating SAFEAlertNet (market_dim={_SAFE_ALERT_MARKET_DIM}, K_15m=3, K_1h=4, K_4h=5)...")
+        model = SAFEAlertNet(market_dim=_SAFE_ALERT_MARKET_DIM, has_news=True, K_15m=3, K_1h=4, K_4h=5)
         print(f"[live_infer] Loading state dict from {ckpt_path.name}...")
         checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
@@ -486,11 +692,18 @@ def _load_safe_alert_net(symbol: str, horizon: str):
         return None
 
 
-def _build_article_tensors(news_df: pd.DataFrame, horizon: str, current_time: pd.Timestamp):
+def _build_article_tensors(
+    news_df: pd.DataFrame,
+    horizon: str,
+    current_time: pd.Timestamp,
+    symbol: str,
+):
     """
-    Build article_emb (K, 768), article_meta (K, 4), article_meta_list from news_df.
-    Uses pre-computed 'embedding' column if available, else zeros.
-    Window: 1h lookback for 1h horizon, 4h lookback for 4h horizon.
+    Build live article tensors aligned with training inputs.
+
+    Uses per-horizon candidate selection, runtime FinBERT embeddings when
+    available, and 14-dim metadata = 4 base features + 10 target-based
+    sentiment slots (zero-filled when no factor match is found).
     Returns (emb_tensor, meta_tensor, meta_dicts) or None if no articles.
     """
     import torch
@@ -499,34 +712,33 @@ def _build_article_tensors(news_df: pd.DataFrame, horizon: str, current_time: pd
     if news_df.empty or "published_at" not in news_df.columns:
         return None
 
-    lookback_h = 1 if horizon == "1h" else 4
-    cutoff = current_time - timedelta(hours=lookback_h)
-    window = news_df[
-        (news_df["published_at"] >= cutoff) &
-        (news_df["published_at"] <= current_time)
-    ].head(_SAFE_ALERT_MAX_ARTICLES).copy()
+    selected = select_news_for_horizon(news_df, current_time, horizon)
+    window = selected.head(_SAFE_ALERT_MAX_ARTICLES).copy()
 
     if window.empty:
         return None
 
-    K = len(window)
+    lookback_h = 1 if horizon == "1h" else (4 if horizon == "4h" else 24)
     now_ts = current_time.timestamp()
+    texts = [
+        f"{str(row.get('title', '')).strip()} {str(row.get('content', '')).strip()}".strip()
+        for _, row in window.iterrows()
+    ]
+    runtime_embeddings = _get_runtime_embedder().encode(texts)
 
     emb_list  = []
     meta_list = []
     meta_dicts = []
 
-    for _, row in window.iterrows():
-        # Embedding: use stored vector if available, else zeros
+    for idx, (_, row) in enumerate(window.iterrows()):
         if "embedding" in row and isinstance(row["embedding"], (list, np.ndarray)):
             emb = np.asarray(row["embedding"], dtype=np.float32)
-            if len(emb) != 768:
-                emb = np.zeros(768, dtype=np.float32)
+            if emb.shape != (768,):
+                emb = runtime_embeddings[idx]
         else:
-            emb = np.zeros(768, dtype=np.float32)
+            emb = runtime_embeddings[idx]
         emb_list.append(emb)
 
-        # Metadata: [recency_norm, length_norm, source_cred, novelty_norm]
         pub_ts = row["published_at"].timestamp() if hasattr(row["published_at"], "timestamp") else now_ts
         age_h  = max(0.0, (now_ts - pub_ts) / 3600.0)
         recency = float(np.exp(-age_h / (lookback_h + 1)))
@@ -542,11 +754,51 @@ def _build_article_tensors(news_df: pd.DataFrame, horizon: str, current_time: pd
         sentiment_score = float(row.get("sentiment_score", row.get("nlp_score", 0.0)) or 0.0)
         novelty = min(1.0, abs(sentiment_score))
 
-        meta_list.append([recency, length_norm, source_cred, novelty])
-        meta_dicts.append({"title": str(row.get("title", ""))})
+        factor_probs, entity_sent = _lookup_factor_cache(row)
+
+        if factor_probs is None:
+            factor_probs = _try_parse_factor_vector(
+                row,
+                keys=["factor_probs", "factor_probs_json", "factor_distribution", "factor_label"],
+                expected_dim=len(FACTOR_NAMES),
+            )
+        if entity_sent is None:
+            entity_sent = _try_parse_factor_vector(
+                row,
+                keys=["factor_sentiment", "entity_sentiment", "fsa_vector"],
+                expected_dim=len(FACTOR_NAMES),
+            )
+
+        if factor_probs is None:
+            factor_probs = _infer_factor_distribution(
+                str(row.get("title", "")),
+                str(row.get("content", "")),
+                str(row.get("source", "unknown")),
+            )
+        if entity_sent is None:
+            entity_sent = _estimate_entity_sentiment(
+                str(row.get("title", "")),
+                str(row.get("content", "")),
+                str(row.get("source", "unknown")),
+            )
+        meta_vec = np.concatenate(
+            [np.array([recency, length_norm, source_cred, novelty], dtype=np.float32), entity_sent]
+        )
+        if meta_vec.shape[0] < META_DIM:
+            meta_vec = np.pad(meta_vec, (0, META_DIM - meta_vec.shape[0]))
+
+        meta_list.append(meta_vec[:META_DIM].tolist())
+        meta_dicts.append({
+            "title": str(row.get("title", "")),
+            "source": str(row.get("source", "unknown")),
+            "published_at": str(row.get("published_at", "")),
+            "relevance_score": float(row.get("relevance_score", 0.0)),
+            "factor_probs": factor_probs.tolist(),
+            "factor_sentiment": entity_sent.tolist(),
+        })
 
     emb_tensor  = torch.tensor(np.stack(emb_list), dtype=torch.float32)   # (K, 768)
-    meta_tensor = torch.tensor(meta_list, dtype=torch.float32)            # (K, 4)
+    meta_tensor = torch.tensor(meta_list, dtype=torch.float32)            # (K, 14)
     return emb_tensor, meta_tensor, meta_dicts
 
 
@@ -560,6 +812,7 @@ def _run_safe_alert_net(
     use_multiframe: bool = False,  # NEW: True if 1m 5-timeframe data, False if 1h pseudo-timeframe
     tau_h: float = 0.65,
     gamma_h: float = 0.60,
+    temperature_h: float = 1.0,
 ) -> dict | None:
     """
     Run a single SAFEAlertNet forward pass for one sample.
@@ -572,8 +825,6 @@ def _run_safe_alert_net(
     """
     import torch
     import torch.nn.functional as F
-    from models.safe_alert_net import HORIZON_VOCAB, FACTOR_NAMES
-
     print(f"[RUN] [_run_safe_alert_net] Starting inference for {horizon} ({'TRUE 5-TIMEFRAME' if use_multiframe else 'PSEUDO-TIMEFRAME'})...")
     try:
         # Market feature vector (B=1, M=63)
@@ -605,7 +856,7 @@ def _run_safe_alert_net(
 
         # Article tensors
         print(f"[RUN] [_run_safe_alert_net] Building article tensors...")
-        art_result = _build_article_tensors(news_df, horizon, current_time)
+        art_result = _build_article_tensors(news_df, horizon, current_time, str(market_row.get("symbol", "BTCUSDT")))
         if art_result is not None:
             emb_t, meta_t, meta_dicts = art_result
             # Add batch dim
@@ -632,16 +883,13 @@ def _run_safe_alert_net(
 
         dir_logits = out["dir_logits"][0]     # (3,)
         confidence = float(out["confidence"][0])
-        probs      = F.softmax(dir_logits, dim=-1).tolist()  # [P_down, P_neutral, P_up]
+        probs_tensor = _temperature_softmax(dir_logits, temperature_h)
+        probs      = probs_tensor.tolist()  # [P_down, P_neutral, P_up]
         pred_class = int(dir_logits.argmax())                # 0=DOWN, 1=NEUTRAL, 2=UP
         print(f"[OK] [_run_safe_alert_net] Confidence: {confidence}, Signal: {['DOWN', 'NEUTRAL', 'UP'][pred_class]}")
 
         # Alert decision Eq.26
-        alert = model.alert_decision(
-            out["dir_logits"], out["confidence"],
-            tau_h=tau_h, gamma_h=gamma_h
-        )
-        should_alert = bool(alert[0].item())
+        should_alert = bool((confidence >= float(tau_h)) and (float(probs_tensor.max().item()) >= float(gamma_h)))
 
         # Structured explanation
         explanation = {}
@@ -655,6 +903,7 @@ def _run_safe_alert_net(
                 direction=pred_class,
                 confidence=confidence,
                 horizon=horizon,
+                symbol=str(market_row.get("symbol", "BTCUSDT")),
             )
             explanation = exp_out
 
@@ -664,8 +913,10 @@ def _run_safe_alert_net(
             "confidence":   confidence,
             "probs":        {"DOWN": probs[0], "NEUTRAL": probs[1], "UP": probs[2]},
             "should_alert": should_alert,
+            "temperature": float(temperature_h),
             "selected_news":  explanation.get("selected_news", []),
             "top_factors":    explanation.get("top_factors", []),
+            "factors_text":   explanation.get("factors_text", ""),
             "nl_explanation": explanation.get("nl_explanation", ""),
             "source":         "safe_alert_net",
         }
@@ -693,16 +944,11 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
     print(f"[START] [run_live_inference] Starting for {symbol}...")
     logger.info("Running live inference for %s...", symbol)
 
-    # Fetch news once here so the same DataFrame is passed to both
-    # build_live_feature_df (NLP feature computation) and infer_horizon
-    # (per-horizon selective news selection). If we let build_live_feature_df
-    # fetch internally, the outer news_df stays None and infer_horizon gets
-    # no news -> selected_news always empty.
-    if news_df is None:
-        news_df = _fetch_news_mongodb(symbol, hours=NEWS_LOOKBACK_H)
-
     df_live, use_multiframe = build_live_feature_df(symbol, news_df=news_df)
     row     = df_live.iloc[-1]
+
+    if news_df is None:
+        news_df = _fetch_news_mongodb(symbol, hours=NEWS_LOOKBACK_H, reference_time=row["timestamp_dt"])
 
     print(f"[INFO] [run_live_inference] Using {'TRUE 5-TIMEFRAME' if use_multiframe else 'PSEUDO-TIMEFRAME'} market features")
 
@@ -715,12 +961,13 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
         return {
             "signal": "HOLD", "confidence": 0.0, "final_prob": 0.333,
             "probs": {"UP": 0.333, "DOWN": 0.333, "NEUTRAL": 0.334},
-            "selected_news": [], "top_factors": [], "explanation": "",
+            "selected_news": [], "top_factors": [], "factors_text": "", "explanation": "",
             "should_alert": False, "model_used": "SAFEAlertNet",
             "horizon": horizon,
         }
 
-    current_time = pd.Timestamp.now(tz="UTC")  # FIXED: Keep UTC timezone for consistency
+    current_time = pd.Timestamp(row["timestamp_dt"])
+    current_time = current_time.tz_localize("UTC") if current_time.tz is None else current_time.tz_convert("UTC")
     feat_1h = _load_feature_cols(symbol, "1h")
     feat_4h = _load_feature_cols(symbol, "4h")
     p1_thresh = load_safe_alert_policy(symbol, "1h")
@@ -734,6 +981,7 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
             san_model_1h, row, feat_1h, news_df, "1h", current_time,
             use_multiframe=use_multiframe,
             tau_h=float(p1_thresh["tau"]), gamma_h=float(p1_thresh["gamma"]),
+            temperature_h=float(p1_thresh.get("temperature", 1.0)),
         )
         if san_1h_raw:
             print(f"[OK] [1h] Inference result: signal={san_1h_raw.get('signal')}, conf={san_1h_raw.get('confidence')}")
@@ -743,116 +991,27 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
         print(f"[WARN] [1h] Model NOT loaded - using neutral fallback")
 
     if san_1h_raw is not None:
-        # Check confidence vs technical signal
         model_signal = san_1h_raw.get("signal", "NEUTRAL")
-        model_conf = san_1h_raw.get("confidence", 0.0)
+        model_conf = float(san_1h_raw.get("confidence", 0.0))
         probs = san_1h_raw.get("probs", {})
 
-        rsi = row.get("rsi_14", 50.0)
-        macd = row.get("macd_hist", 0.0)
-        bb_pos = row.get("bb_pos", 0.5)
-
-        print(f"[INFO] [1h] Model result: signal={model_signal}, conf={model_conf:.3f}, RSI={rsi:.1f}, MACD={macd:.2f}, BB={bb_pos:.2f}")
-
-        # Enhanced confidence: blend model output with model's probability certainty
-        enhanced_conf = model_conf
-        if probs:
-            max_prob = max(probs.values())
-            # Only boost confidence when model is MORE certain (max_prob > 0.40)
-            # Normalize: 0.40 -> 0.0 (no boost), 1.0 -> 1.0 (high boost)
-            if max_prob > 0.40:
-                model_certainty = (max_prob - 0.40) / 0.60  # range [0, 1]
-                # Boost: keep model_conf, but allow up to increased certainty boost
-                boost = model_certainty * 0.3  # max +0.30 boost
-                enhanced_conf = model_conf + boost  # additive boost, not blending
-                print(f"   [1h] Confidence boost: base={model_conf:.3f}, certainty={model_certainty:.3f} -> {enhanced_conf:.3f} (+{boost:.3f})")
-
-        # ALWAYS check EXTREME conditions first (override model completely)
-        if rsi >= 90:  # Extreme overbought
-            print(f"[WARN] [1h] EXTREME OVERBOUGHT: RSI={rsi:.1f} >= 90 -> forcing SELL with 0.95 confidence")
-            model_signal = "SELL"
-            enhanced_conf = 0.95  # Very high confidence
-        elif rsi <= 10:  # Extreme oversold
-            print(f"[WARN] [1h] EXTREME OVERSOLD: RSI={rsi:.1f} <= 10 -> forcing BUY with 0.95 confidence")
-            model_signal = "BUY"
-            enhanced_conf = 0.95  # Very high confidence
-        # If not extreme, check if model not confident (conf < 0.4) for technical override
-        elif model_conf < 0.4:
-            signal_changed = False
-            technical_strength = 0.0
-
-            # Strong technical signals - override SIGNAL + boost confidence
-            if rsi < 30 and macd < 0:
-                model_signal = "BUY"
-                signal_changed = True
-                technical_strength = min(1.0, (30 - rsi) / 30 * 0.5 + abs(macd) / 100 * 0.5)
-            elif rsi > 70 and macd > 0:
-                model_signal = "SELL"
-                signal_changed = True
-                technical_strength = min(1.0, (rsi - 70) / 30 * 0.5 + macd / 100 * 0.5)
-            # Moderate signals: RSI 30-50 + MACD < 0 = BUY lean
-            elif 30 <= rsi <= 50 and macd < -2:
-                model_signal = "BUY"
-                signal_changed = True
-                technical_strength = min(1.0, abs(macd) / 100 * 0.8)
-            # Moderate signals: RSI 50-70 + MACD > 0 = SELL lean
-            elif 50 <= rsi <= 70 and macd > 2:
-                model_signal = "SELL"
-                signal_changed = True
-                technical_strength = min(1.0, macd / 100 * 0.8)
-            # Bollinger Bands: price at extremes
-            elif bb_pos < 0.2 and rsi < 40:
-                model_signal = "BUY"
-                signal_changed = True
-                technical_strength = (0.2 - bb_pos) / 0.2 * 0.4 + (40 - rsi) / 40 * 0.4
-            elif bb_pos > 0.8 and rsi > 60:
-                model_signal = "SELL"
-                signal_changed = True
-                technical_strength = (bb_pos - 0.8) / 0.2 * 0.4 + (rsi - 60) / 40 * 0.4
-
-            if signal_changed:
-                # Blend enhanced_conf with technical strength (80% model, 20% technical boost)
-                technical_boost = technical_strength * 0.2
-                enhanced_conf = enhanced_conf + technical_boost
-                print(f"[CHANGE] [1h] Technical override: RSI={rsi:.1f}, MACD={macd:.2f}, BB={bb_pos:.2f} -> signal={model_signal}, conf={enhanced_conf:.3f} (+{technical_boost:.3f})")
-
-        # Clamp confidence to [0, 1]
-        enhanced_conf = min(1.0, max(0.0, enhanced_conf))
-        model_conf = enhanced_conf
+        print(f"[INFO] [1h] Model result: signal={model_signal}, conf={model_conf:.3f}")
 
         h1h = {
             "signal":        _SAN_SIGNAL_MAP.get(model_signal, "HOLD"),
             "confidence":    model_conf,
-            "final_prob":    san_1h_raw.get("probs", {}).get("UP", 0.333),
-            "probs":         san_1h_raw.get("probs", {}),
+            "final_prob":    probs.get("UP", 0.333),
+            "probs":         probs,
             "selected_news": san_1h_raw.get("selected_news", []),
             "top_factors":   san_1h_raw.get("top_factors", []),
+            "factors_text":  san_1h_raw.get("factors_text", ""),
             "explanation":   san_1h_raw.get("nl_explanation", ""),
             "should_alert":  san_1h_raw.get("should_alert", False),
             "model_used":    "SAFEAlertNet",
             "horizon":       "1h",
         }
     else:
-        # Use technical indicators to generate mock signal
-        rsi = row.get("rsi_14", 50.0)
-        macd = row.get("macd_hist", 0.0)
-
-        # Simple trading logic: RSI > 70 = SELL, RSI < 30 = BUY, else HOLD
-        if rsi > 70:
-            mock_signal = "SELL"
-            mock_conf = min(0.85, (rsi - 70) / 30 * 0.85)
-        elif rsi < 30:
-            mock_signal = "BUY"
-            mock_conf = min(0.85, (30 - rsi) / 30 * 0.85)
-        else:
-            mock_signal = "NEUTRAL"
-            mock_conf = 0.3
-
         h1h = _neutral_horizon("1h")
-        if mock_signal != "NEUTRAL":
-            h1h["signal"] = {"BUY": "BUY", "SELL": "SELL"}.get(mock_signal, "HOLD")
-            h1h["confidence"] = mock_conf
-            h1h["final_prob"] = 0.6 if mock_signal in ["BUY", "SELL"] else 0.333
 
     san_model_4h = _load_safe_alert_net(symbol, "4h")
     san_4h_raw = None
@@ -862,6 +1021,7 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
             san_model_4h, row, feat_4h, news_df, "4h", current_time,
             use_multiframe=use_multiframe,
             tau_h=float(p4_thresh["tau"]), gamma_h=float(p4_thresh["gamma"]),
+            temperature_h=float(p4_thresh.get("temperature", 1.0)),
         )
         if san_4h_raw:
             print(f"[OK] [4h] Inference result: signal={san_4h_raw.get('signal')}, conf={san_4h_raw.get('confidence')}")
@@ -869,136 +1029,49 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
         print(f"[WARN] [4h] Model NOT loaded - using neutral fallback")
 
     if san_4h_raw is not None:
-        # Check confidence vs technical signal (4h)
         model_signal = san_4h_raw.get("signal", "NEUTRAL")
-        model_conf = san_4h_raw.get("confidence", 0.0)
+        model_conf = float(san_4h_raw.get("confidence", 0.0))
         probs = san_4h_raw.get("probs", {})
 
-        rsi = row.get("rsi_14", 50.0)
-        macd = row.get("macd_hist", 0.0)
-        bb_pos = row.get("bb_pos", 0.5)
-
-        print(f"[INFO] [4h] Model result: signal={model_signal}, conf={model_conf:.3f}, RSI={rsi:.1f}, MACD={macd:.2f}, BB={bb_pos:.2f}")
-
-        # Enhanced confidence: blend model output with model's probability certainty
-        enhanced_conf = model_conf
-        if probs:
-            max_prob = max(probs.values())
-            # Only boost confidence when model is MORE certain (max_prob > 0.40)
-            # Normalize: 0.40 -> 0.0 (no boost), 1.0 -> 1.0 (high boost)
-            if max_prob > 0.40:
-                model_certainty = (max_prob - 0.40) / 0.60  # range [0, 1]
-                # Boost: keep model_conf, but allow up to increased certainty boost
-                boost = model_certainty * 0.3  # max +0.30 boost
-                enhanced_conf = model_conf + boost  # additive boost, not blending
-                print(f"   [4h] Confidence boost: base={model_conf:.3f}, certainty={model_certainty:.3f} -> {enhanced_conf:.3f} (+{boost:.3f})")
-
-        # ALWAYS check EXTREME conditions first (override model completely)
-        if rsi >= 90:  # Extreme overbought
-            print(f"[WARN] [4h] EXTREME OVERBOUGHT: RSI={rsi:.1f} >= 90 -> forcing SELL with 0.95 confidence")
-            model_signal = "SELL"
-            enhanced_conf = 0.95  # Very high confidence
-        elif rsi <= 10:  # Extreme oversold
-            print(f"[WARN] [4h] EXTREME OVERSOLD: RSI={rsi:.1f} <= 10 -> forcing BUY with 0.95 confidence")
-            model_signal = "BUY"
-            enhanced_conf = 0.95  # Very high confidence
-        # If not extreme, check if model not confident (conf < 0.4) for technical override
-        elif model_conf < 0.4:
-            signal_changed = False
-            technical_strength = 0.0
-
-            # Strong technical signals - override SIGNAL + boost confidence
-            if rsi < 30 and macd < 0:
-                model_signal = "BUY"
-                signal_changed = True
-                technical_strength = min(1.0, (30 - rsi) / 30 * 0.5 + abs(macd) / 100 * 0.5)
-            elif rsi > 70 and macd > 0:
-                model_signal = "SELL"
-                signal_changed = True
-                technical_strength = min(1.0, (rsi - 70) / 30 * 0.5 + macd / 100 * 0.5)
-            # Moderate signals: RSI 30-50 + MACD < 0 = BUY lean
-            elif 30 <= rsi <= 50 and macd < -2:
-                model_signal = "BUY"
-                signal_changed = True
-                technical_strength = min(1.0, abs(macd) / 100 * 0.8)
-            # Moderate signals: RSI 50-70 + MACD > 0 = SELL lean
-            elif 50 <= rsi <= 70 and macd > 2:
-                model_signal = "SELL"
-                signal_changed = True
-                technical_strength = min(1.0, macd / 100 * 0.8)
-            # Bollinger Bands: price at extremes
-            elif bb_pos < 0.2 and rsi < 40:
-                model_signal = "BUY"
-                signal_changed = True
-                technical_strength = (0.2 - bb_pos) / 0.2 * 0.4 + (40 - rsi) / 40 * 0.4
-            elif bb_pos > 0.8 and rsi > 60:
-                model_signal = "SELL"
-                signal_changed = True
-                technical_strength = (bb_pos - 0.8) / 0.2 * 0.4 + (rsi - 60) / 40 * 0.4
-
-            if signal_changed:
-                # Blend enhanced_conf with technical strength (80% model, 20% technical boost)
-                technical_boost = technical_strength * 0.2
-                enhanced_conf = enhanced_conf + technical_boost
-                print(f"[CHANGE] [4h] Technical override: RSI={rsi:.1f}, MACD={macd:.2f}, BB={bb_pos:.2f} -> signal={model_signal}, conf={enhanced_conf:.3f} (+{technical_boost:.3f})")
-
-        # Clamp confidence to [0, 1]
-        enhanced_conf = min(1.0, max(0.0, enhanced_conf))
-        model_conf = enhanced_conf
+        print(f"[INFO] [4h] Model result: signal={model_signal}, conf={model_conf:.3f}")
 
         h4h = {
             "signal":        _SAN_SIGNAL_MAP.get(model_signal, "HOLD"),
             "confidence":    model_conf,
-            "final_prob":    san_4h_raw.get("probs", {}).get("UP", 0.333),
-            "probs":         san_4h_raw.get("probs", {}),
+            "final_prob":    probs.get("UP", 0.333),
+            "probs":         probs,
             "selected_news": san_4h_raw.get("selected_news", []),
             "top_factors":   san_4h_raw.get("top_factors", []),
+            "factors_text":  san_4h_raw.get("factors_text", ""),
             "explanation":   san_4h_raw.get("nl_explanation", ""),
             "should_alert":  san_4h_raw.get("should_alert", False),
             "model_used":    "SAFEAlertNet",
             "horizon":       "4h",
         }
     else:
-        # Use technical indicators + 4h trend for mock signal (same RSI logic as 1h)
-        rsi = row.get("rsi_14", 50.0)
-
-        # Same simple trading logic as 1h: RSI > 70 = SELL, RSI < 30 = BUY, else HOLD
-        if rsi > 70:
-            mock_signal = "SELL"
-            mock_conf = min(0.80, (rsi - 70) / 30 * 0.80)
-        elif rsi < 30:
-            mock_signal = "BUY"
-            mock_conf = min(0.80, (30 - rsi) / 30 * 0.80)
-        else:
-            mock_signal = "NEUTRAL"
-            mock_conf = 0.3
-
         h4h = _neutral_horizon("4h")
-        if mock_signal != "NEUTRAL":
-            h4h["signal"] = {"BUY": "BUY", "SELL": "SELL"}.get(mock_signal, "HOLD")
-            h4h["confidence"] = mock_conf
-            h4h["final_prob"] = 0.6 if mock_signal in ["BUY", "SELL"] else 0.333
 
-    # Derive alert_info from SAFEAlertNet should_alert flags (both horizons)
-    alert_1h = h1h["should_alert"] or h1h["confidence"] >= 0.80  # HIGH confidence triggers alert
-    alert_4h = h4h["should_alert"] or h4h["confidence"] >= 0.80  # HIGH confidence triggers alert
-    if alert_1h and alert_4h:
-        alert_level = "high"
-        alert_triggered = True
-    elif alert_1h or alert_4h:
-        alert_level = "medium"
-        alert_triggered = True
-    else:
-        alert_level = "low"
-        alert_triggered = False
+    alert_decision = decide_alert_multimodal_eq26(
+        signal_1h=h1h["signal"],
+        confidence_1h=h1h["confidence"],
+        max_prob_1h=max(h1h["probs"].values()) if h1h["probs"] else 0.0,
+        tau_1h=float(p1_thresh["tau"]),
+        gamma_1h=float(p1_thresh["gamma"]),
+        signal_4h=h4h["signal"],
+        confidence_4h=h4h["confidence"],
+        max_prob_4h=max(h4h["probs"].values()) if h4h["probs"] else 0.0,
+        tau_4h=float(p4_thresh["tau"]),
+        gamma_4h=float(p4_thresh["gamma"]),
+    )
 
     alert_info = {
-        "alert":   alert_triggered,
-        "level":   alert_level,
-        "signal":  h1h["signal"],
+        "alert": alert_decision["alert"],
+        "level": alert_decision["level"],
+        "signal": alert_decision.get("signal", h1h["signal"]),
+        "reason": alert_decision["reason"],
         "reasons": [
-            f"1h SAFEAlertNet: {h1h['signal']} (conf={h1h['confidence']:.3f})",
-            f"4h SAFEAlertNet: {h4h['signal']} (conf={h4h['confidence']:.3f})",
+            f"1h SAFEAlertNet: {h1h['signal']} (conf={h1h['confidence']:.3f}, p={max(h1h['probs'].values()) if h1h['probs'] else 0.0:.3f})",
+            f"4h SAFEAlertNet: {h4h['signal']} (conf={h4h['confidence']:.3f}, p={max(h4h['probs'].values()) if h4h['probs'] else 0.0:.3f})",
         ],
     }
 
@@ -1008,7 +1081,7 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
         return v.item() if hasattr(v, "item") else v
 
     result = {
-        "timestamp":   str(pd.Timestamp.now(tz="UTC")),
+        "timestamp":   str(current_time),
         "symbol":      symbol,
         "data_source": "live",
         "alert":       alert_info,

@@ -74,6 +74,7 @@ class RelevanceConfig:
 
 # Per-horizon configs: shorter horizon = weight recency more
 HORIZON_RELEVANCE_CONFIGS: dict[str, RelevanceConfig] = {
+    "15m": RelevanceConfig(recency_weight=0.75, credibility_weight=0.15, keyword_weight=0.10, recency_halflife_h=0.5),
     "1h":  RelevanceConfig(recency_weight=0.60, credibility_weight=0.20, keyword_weight=0.20, recency_halflife_h=2.0),
     "4h":  RelevanceConfig(recency_weight=0.45, credibility_weight=0.30, keyword_weight=0.25, recency_halflife_h=6.0),
     "24h": RelevanceConfig(recency_weight=0.30, credibility_weight=0.35, keyword_weight=0.35, recency_halflife_h=12.0),

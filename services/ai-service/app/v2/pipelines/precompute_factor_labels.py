@@ -15,6 +15,7 @@ Usage:
     python precompute_factor_labels.py --method zero_shot
     python precompute_factor_labels.py --method llm_api
     python precompute_factor_labels.py --method gemini
+    python precompute_factor_labels.py --method blend
 """
 
 import argparse
@@ -197,40 +198,83 @@ def _softmax_with_temp(scores: np.ndarray, temp: float) -> np.ndarray:
     return (e / e.sum()).astype(np.float32)
 
 
-def _soft_prior(source: str, rng: np.random.Generator) -> np.ndarray:
-    """
-    Build a soft prior distribution for articles with no keyword matches.
-
-    Rather than a perfectly uniform distribution (which gives zero gradient),
-    we add:
-      1. A small source-dependent bias toward likely factors.
-      2. A tiny random perturbation to break symmetry.
-
-    This ensures Lfac always has a gradient even for unmatched articles.
-
-    Returns:
-        (N_FACTORS,) float32 probability array summing to 1.0
-    """
-    # Start from near-uniform (slightly below 1/C so boosts can exceed it)
+def _source_prior_base(source: str) -> np.ndarray:
+    """Build the deterministic source prior before optional noise."""
     base = np.ones(N_FACTORS, dtype=np.float32) / N_FACTORS
-
-    # Apply source-specific boost if known
     src_lower = str(source).lower() if pd.notna(source) else ""
-    matched = False
     for src_key, boosts in SOURCE_PRIOR_BOOSTS.items():
         if src_key in src_lower:
             for factor_idx, boost_val in boosts.items():
                 base[factor_idx] += boost_val
-            matched = True
             break
-
-    # Add small random noise to break uniform symmetry
-    noise = rng.uniform(0.0, SOFT_PRIOR_NOISE, size=N_FACTORS).astype(np.float32)
-    base += noise
-
-    # Re-normalize to valid probability distribution
     base /= base.sum()
     return base.astype(np.float32)
+
+
+def has_source_prior_bias(source: str) -> bool:
+    """Return True when a source-specific prior boost is available."""
+    src_lower = str(source).lower() if pd.notna(source) else ""
+    return any(src_key in src_lower and boosts for src_key, boosts in SOURCE_PRIOR_BOOSTS.items())
+
+
+def _soft_prior(
+    source: str,
+    rng: np.random.Generator | None = None,
+    noise_scale: float = SOFT_PRIOR_NOISE,
+) -> np.ndarray:
+    """
+    Build a soft prior distribution for articles with no keyword matches.
+
+    When rng is omitted or noise_scale=0, this becomes deterministic. That lets
+    live inference reuse the same factor prior logic without injecting runtime
+    randomness while training precompute can still add tiny symmetry-breaking
+    noise for unmatched articles.
+    """
+    base = _source_prior_base(source)
+    if rng is not None and noise_scale > 0:
+        noise = rng.uniform(0.0, noise_scale, size=N_FACTORS).astype(np.float32)
+        base = base + noise
+        base /= base.sum()
+    return base.astype(np.float32)
+
+
+def compute_factor_probs_for_article(
+    title: str,
+    content: str,
+    source: str = "",
+    rng: np.random.Generator | None = None,
+    deterministic_prior: bool = False,
+) -> tuple[np.ndarray, bool]:
+    """
+    Infer a factor distribution for one article using the shared keyword/source path.
+
+    This helper is reused by both artifact precomputation and live inference so
+    the runtime factor path stays closer to the train-time pseudo-label path.
+    When keywords match weakly, blend in a small source prior to reduce noisy
+    one-factor spikes from sparse keyword hits.
+    """
+    scores = _score_article(title, content)
+    source_prior = _soft_prior(
+        source,
+        rng=None if deterministic_prior else rng,
+        noise_scale=0.0 if deterministic_prior else SOFT_PRIOR_NOISE,
+    )
+
+    if scores.sum() <= 0:
+        return source_prior.astype(np.float32), False
+
+    score_probs = _softmax_with_temp(scores, LABEL_TEMP)
+    strength = float(scores.sum())
+    if strength <= 2.0:
+        prior_weight = 0.18
+    elif strength <= 5.0:
+        prior_weight = 0.10
+    else:
+        prior_weight = 0.05
+
+    probs = (1.0 - prior_weight) * score_probs + prior_weight * source_prior
+    probs /= probs.sum()
+    return probs.astype(np.float32), True
 
 
 def compute_factor_labels(
@@ -262,20 +306,11 @@ def compute_factor_labels(
         content = getattr(row, "content", "")
         source = getattr(row, "source", "")
 
-        scores = _score_article(title, content)
-
-        if scores.sum() > 0:
-            # Keyword matched: apply softmax with temperature sharpening
-            probs = _softmax_with_temp(scores, LABEL_TEMP)
+        probs, matched = compute_factor_probs_for_article(title, content, source, rng=rng)
+        if matched:
             n_matched += 1
-        else:
-            # No keyword match: use soft prior based on source
-            probs = _soft_prior(source, rng)
-            src_lower = str(source).lower() if pd.notna(source) else ""
-            for src_key in SOURCE_PRIOR_BOOSTS:
-                if src_key in src_lower and SOURCE_PRIOR_BOOSTS[src_key]:
-                    n_source_biased += 1
-                    break
+        elif has_source_prior_bias(source):
+            n_source_biased += 1
 
         factor_labels[i] = probs
 
@@ -336,6 +371,40 @@ def print_statistics(
           f"(uniform = {np.log(N_FACTORS):.4f})")
     print(f"Reduction vs uniform:    {(1 - entropy_per_article.mean()/np.log(N_FACTORS))*100:.1f}%")
     print("=" * 60)
+
+
+def postprocess_factor_labels(
+    factor_labels: np.ndarray,
+    max_prob_cap: float = 0.97,
+    entropy_floor: float = 0.12,
+    uniform_mix_max: float = 0.12,
+) -> np.ndarray:
+    """Soften overly sharp factor distributions to reduce noisy one-hot labels."""
+    if factor_labels.size == 0:
+        return factor_labels
+    num_classes = factor_labels.shape[1]
+    uniform = np.full(num_classes, 1.0 / num_classes, dtype=np.float32)
+
+    def _entropy(p: np.ndarray) -> float:
+        p = np.clip(p, 1e-8, 1.0)
+        return float(-(p * np.log(p)).sum())
+
+    processed = factor_labels.astype(np.float32).copy()
+    for i in range(processed.shape[0]):
+        p = processed[i]
+        p = np.clip(p, 1e-8, 1.0)
+        p = p / p.sum()
+        max_p = float(p.max())
+        ent = _entropy(p)
+        if max_p <= max_prob_cap and ent >= entropy_floor:
+            processed[i] = p
+            continue
+        denom = max(max_p - uniform[0], 1e-6)
+        mix = min(uniform_mix_max, max(0.0, (max_p - max_prob_cap) / denom))
+        p2 = (1.0 - mix) * p + mix * uniform
+        p2 = p2 / p2.sum()
+        processed[i] = p2.astype(np.float32)
+    return processed
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +563,48 @@ def compute_factor_labels_zero_shot(
 
     print(f"[zero_shot] Done. Zero-shot-classified={n_zero_shot_used}/{N} "
           f"| Fallback-keyword={n_matched} Fallback-prior={n_source_biased}")
+    return factor_labels, n_matched, n_source_biased, factor_top_counts
+
+
+def compute_factor_labels_blend(
+    articles_df: pd.DataFrame,
+    batch_size: int = 8,
+    seed: int = 42,
+    zs_conf_threshold: float = 0.7,
+) -> tuple:
+    """Blend keyword labels with zero-shot when zero-shot is confident.
+
+    Strategy:
+      - Always compute keyword labels (fast, deterministic).
+      - Compute zero-shot labels once.
+      - If zero-shot max_prob >= threshold, use zero-shot; else keep keyword.
+
+    Returns:
+        (factor_labels, n_matched, n_source_biased, factor_top_counts)
+    """
+    print("[blend] Computing keyword labels ...")
+    kw_labels, n_matched, n_source_biased, _ = compute_factor_labels(
+        articles_df, seed=seed
+    )
+
+    print("[blend] Computing zero-shot labels ...")
+    zs_labels, _, _, _ = compute_factor_labels_zero_shot(
+        articles_df, batch_size=batch_size, seed=seed
+    )
+
+    zs_max = zs_labels.max(axis=1)
+    use_zs = zs_max >= float(zs_conf_threshold)
+    factor_labels = kw_labels.copy()
+    factor_labels[use_zs] = zs_labels[use_zs]
+
+    factor_top_counts = np.zeros(N_FACTORS, dtype=np.int64)
+    for p in factor_labels:
+        factor_top_counts[int(np.argmax(p))] += 1
+
+    n_zs_used = int(use_zs.sum())
+    print(f"[blend] Zero-shot used for {n_zs_used}/{len(articles_df)} "
+          f"articles (max_prob >= {zs_conf_threshold:.2f})")
+
     return factor_labels, n_matched, n_source_biased, factor_top_counts
 
 
@@ -1013,6 +1124,7 @@ def main():
     # pipelines/ -> v2/ -> app/ -> ai-service/
     service_root = script_dir.parent.parent.parent
     default_training_data = service_root / "training_data"
+    default_training_data_v2 = default_training_data / "v2"
 
     parser.add_argument(
         "--articles_path",
@@ -1028,7 +1140,7 @@ def main():
     )
     parser.add_argument(
         "--method",
-        choices=["keyword", "zero_shot", "llm_api", "gemini", "mistral"],
+        choices=["keyword", "zero_shot", "llm_api", "gemini", "mistral", "blend"],
         default="keyword",
         help=(
             "Factor label method: "
@@ -1036,7 +1148,8 @@ def main():
             "zero_shot (BART-MNLI), "
             "llm_api (Claude API, requires ANTHROPIC_API_KEY), "
             "gemini (Google Gemini free tier, requires GOOGLE_API_KEY), "
-            "mistral (Mistral AI, requires MISTRAL_API_KEY)"
+            "mistral (Mistral AI, requires MISTRAL_API_KEY), "
+            "blend (zero_shot when confident, else keyword)"
         ),
     )
     parser.add_argument(
@@ -1045,20 +1158,51 @@ def main():
         default=8,
         help="Batch size for zero_shot inference (default: 8)",
     )
+    parser.add_argument(
+        "--blend_max_prob",
+        type=float,
+        default=0.7,
+        help="Zero-shot confidence threshold for blend method (default: 0.7).",
+    )
+    parser.add_argument(
+        "--postprocess",
+        choices=["off", "auto", "on"],
+        default="auto",
+        help="Postprocess factor labels to soften overly sharp distributions (default: auto).",
+    )
+    parser.add_argument(
+        "--max_prob_cap",
+        type=float,
+        default=0.97,
+        help="Cap for max factor probability when postprocessing (default: 0.97).",
+    )
+    parser.add_argument(
+        "--entropy_floor",
+        type=float,
+        default=0.12,
+        help="Minimum entropy threshold to avoid overconfident labels (default: 0.12).",
+    )
+    parser.add_argument(
+        "--uniform_mix_max",
+        type=float,
+        default=0.12,
+        help="Maximum uniform-mix ratio when postprocessing (default: 0.12).",
+    )
     args = parser.parse_args()
 
     # Resolve articles path
     if args.articles_path is None:
+        base = default_training_data_v2 if default_training_data_v2.exists() else default_training_data
         candidates = [
-            default_training_data / "articles_max.csv",
-            default_training_data / "articles.csv",
+            base / "articles_max.csv",
+            base / "articles.csv",
         ]
         for c in candidates:
             if c.exists():
                 args.articles_path = c
                 break
         if args.articles_path is None:
-            print(f"[ERROR] Could not find articles_max.csv or articles.csv in {default_training_data}")
+            print(f"[ERROR] Could not find articles_max.csv or articles.csv in {base}")
             sys.exit(1)
 
     if not args.articles_path.exists():
@@ -1124,6 +1268,17 @@ def main():
         factor_labels, n_matched, n_source_biased, factor_top_counts = (
             compute_factor_labels_zero_shot(articles_df, batch_size=args.batch_size, seed=42)
         )
+    elif args.method == "blend":
+        print(f"[COMPUTE] Blend keyword + zero_shot "
+              f"(threshold={args.blend_max_prob:.2f}, batch_size={args.batch_size})...")
+        factor_labels, n_matched, n_source_biased, factor_top_counts = (
+            compute_factor_labels_blend(
+                articles_df,
+                batch_size=args.batch_size,
+                seed=42,
+                zs_conf_threshold=args.blend_max_prob,
+            )
+        )
     elif args.method == "llm_api":
         print(f"[COMPUTE] LLM-API classification via Anthropic Claude ({N} articles)...")
         factor_labels, n_matched, n_source_biased, factor_top_counts = (
@@ -1151,6 +1306,23 @@ def main():
     assert (factor_labels >= 0).all(), "Negative probabilities detected!"
     assert not np.isnan(factor_labels).any(), "NaN detected in factor labels!"
     print(f"[OK] Shape: {factor_labels.shape}, dtype: {factor_labels.dtype}")
+
+    postprocess_mode = args.postprocess
+    postprocess_enabled = (
+        postprocess_mode == "on" or
+        (postprocess_mode == "auto" and args.method in {"zero_shot", "llm_api", "gemini", "mistral", "blend"})
+    )
+    if postprocess_enabled:
+        print("[POST] Softening factor label distributions...")
+        factor_labels = postprocess_factor_labels(
+            factor_labels,
+            max_prob_cap=args.max_prob_cap,
+            entropy_floor=args.entropy_floor,
+            uniform_mix_max=args.uniform_mix_max,
+        )
+        factor_top_counts = np.zeros(N_FACTORS, dtype=np.int64)
+        for p in factor_labels:
+            factor_top_counts[int(np.argmax(p))] += 1
 
     # Save
     np.save(output_path, factor_labels)

@@ -77,7 +77,7 @@ except Exception as e:
 
 FACTOR_CLASSES = len(FACTOR_NAMES)
 N_TIMEFRAMES = 5  # Eq.16-19 spec: 5 timeframes (1m, 5m, 15m, 1h, 4h)
-HORIZON_VOCAB = {"1h": 0, "4h": 1, "24h": 2}  # horizon embedding (PDF: h ∈ {15m,1h,4h,24h})
+HORIZON_VOCAB = {"15m": 0, "1h": 1, "4h": 2, "24h": 3}  # horizon embedding (PDF: h ∈ {15m,1h,4h,24h})
 HORIZON_EMB_DIM = 16
 MARKET_DIM = 63  # kept for backward compat
 
@@ -360,7 +360,7 @@ class ExplanationModule(nn.Module):
     def forward(self, alpha_tilde: torch.Tensor, p_fac: torch.Tensor,
                 article_meta: list[dict], K_h: int, P: int = 3,
                 direction: int = 1, confidence: float = 0.0,
-                horizon: str = "1h") -> dict:
+                horizon: str = "1h", symbol: str = "BTC") -> dict:
         """
         alpha_tilde: (K,) attention weights for single sample
         p_fac:       (K, C) factor distributions
@@ -390,15 +390,17 @@ class ExplanationModule(nn.Module):
         # Eq.29: Phi_txt — template NL explanation
         dir_str = {0: "giam (DOWN)", 1: "trung tinh (NEUTRAL)", 2: "tang (UP)"}.get(direction, "?")
         factor_str = " va ".join(top_factors[:2]) if top_factors else "khong ro"
-        nl = (f"Tin hieu: BTC co kha nang {dir_str} trong {horizon} toi. "
+        nl = (f"Tin hieu: {symbol} co kha nang {dir_str} trong {horizon} toi. "
               f"Do tin cay: {confidence:.2f}. "
               f"Bang chung chinh: {'; '.join(selected_news[:2]) if selected_news else 'N/A'}. "
               f"Yeu to chi phoi: {factor_str}.")
+        factors_text = ", ".join(top_factors) if top_factors else "khong ro"
 
         return {
             "selected_news":  selected_news,
             "top_factors":    top_factors,
             "factor_dist":    avg_factor.tolist(),
+            "factors_text":   factors_text,
             "nl_explanation": nl,
         }
 
@@ -406,14 +408,14 @@ class ExplanationModule(nn.Module):
 class SAFEAlertNet(nn.Module):
     """
     Full SAFE-Alert as per PDF Section 3.
-    horizon: "1h", "4h", or "24h" -- determines K_h and horizon embedding
+    horizon: "15m", "1h", "4h", or "24h" -- determines K_h and horizon embedding
     """
     def __init__(self, market_dim: int = MARKET_DIM, article_dim: int = 128,
                  query_dim: int = 64, n_factors: int = FACTOR_CLASSES,
-                 has_news: bool = True, K_1h: int = 8, K_4h: int = 6, K_24h: int = 8):
+                 has_news: bool = True, K_15m: int = 3, K_1h: int = 4, K_4h: int = 5, K_24h: int = 8):
         super().__init__()
         self.has_news    = has_news
-        self.K_h_map     = {"1h": K_1h, "4h": K_4h, "24h": K_24h}
+        self.K_h_map     = {"15m": K_15m, "1h": K_1h, "4h": K_4h, "24h": K_24h}
         self.article_dim = article_dim
 
         # Horizon embedding (learned)
@@ -457,179 +459,181 @@ class SAFEAlertNet(nn.Module):
         # Explanation module (Eq.27-29)
         self.explainer = ExplanationModule()
 
+    # ── Shared encoder (Eq.8-19) ──────────────────────────────────────────────
+
+    def _encode_common(
+        self,
+        market_feat: torch.Tensor,
+        horizon: str,
+        article_emb: Optional[torch.Tensor],
+        article_mask: Optional[torch.Tensor],
+        article_meta_vec: Optional[torch.Tensor],
+        ablation: Optional[str] = None,
+    ) -> dict:
+        """Shared market + horizon + article encoding (Eq.8-19).
+
+        Extracts the common prefix of forward() and forward_masked() to eliminate
+        code duplication. Both callers receive identical intermediate representations
+        and apply their own article-weighting logic on top.
+
+        Returns dict keys: h_emb, z_mkt, u_stack, query, e_i, K_h, article_meta_vec.
+        e_i and K_h are None when no articles are available.
+        """
+        B   = market_feat.shape[0]
+        dev = market_feat.device
+
+        # Horizon embedding (Eq.HORIZON_EMB) — w/o_horizon: zero out
+        if horizon not in HORIZON_VOCAB:
+            raise ValueError(f"Unknown horizon '{horizon}'. Must be one of {list(HORIZON_VOCAB.keys())}")
+        h_idx = torch.tensor([HORIZON_VOCAB[horizon]] * B, device=dev)
+        h_emb = self.h_emb_table(h_idx)              # (B, HORIZON_EMB_DIM)
+        if ablation == "w/o_horizon":
+            h_emb = torch.zeros_like(h_emb)
+
+        # Market encoding (Eq.16-19) — w/o_market: zero out
+        z_mkt, u_stack = self.market_enc(market_feat, h_emb)  # (B, dm), (B, 5, dm)
+        if ablation == "w/o_market":
+            z_mkt   = torch.zeros_like(z_mkt)
+            u_stack = torch.zeros_like(u_stack)
+
+        # Query projection (Eq.9)
+        query = self.query_proj(torch.cat([z_mkt, h_emb], dim=-1))  # (B, query_dim)
+
+        # Article encoding (Eq.8) — only when articles are present
+        e_i = K_h = None
+        if self.has_news and article_emb is not None and article_mask is not None:
+            K_h = self.K_h_map.get(horizon, 3)
+            if article_meta_vec is None:
+                article_meta_vec = torch.zeros(B, article_emb.shape[1], META_DIM, device=dev)
+            e_i = self.article_enc(article_emb, article_meta_vec, h_emb)  # (B, K, article_dim)
+
+        return {
+            "h_emb": h_emb, "z_mkt": z_mkt, "u_stack": u_stack,
+            "query": query, "e_i": e_i, "K_h": K_h,
+            "article_meta_vec": article_meta_vec,
+        }
+
+    # ── Forward passes ────────────────────────────────────────────────────────
+
     def forward(self, market_feat: torch.Tensor, horizon: str,
                 article_emb: Optional[torch.Tensor] = None,
                 article_mask: Optional[torch.Tensor] = None,
                 article_meta_vec: Optional[torch.Tensor] = None,
                 ablation: Optional[str] = None) -> dict:
+        """Full forward pass (Eq.8-25).
+
+        market_feat:      (B, M)
+        horizon:          "15m" | "1h" | "4h" | "24h"
+        article_emb:      (B, K, 768)
+        article_mask:     (B, K) float, 1=valid, 0=padding
+        article_meta_vec: (B, K, META_DIM)
+        ablation:         one of None | "w/o_selective_news" | "w/o_factor" |
+                          "w/o_market" | "w/o_confidence" | "w/o_horizon"
         """
-        market_feat:     (B, M)
-        horizon:         "1h", "4h", or "24h"
-        article_emb:     (B, K, 768)
-        article_mask:    (B, K) bool
-        article_meta_vec:(B, K, META_DIM)  [recency, length, source_cred, novelty]
-        ablation:        one of None, "w/o_selective_news", "w/o_factor",
-                         "w/o_market", "w/o_confidence", "w/o_horizon"
-                         Controls which module is disabled for ablation study.
-        """
-        B = market_feat.shape[0]
+        B   = market_feat.shape[0]
         dev = market_feat.device
 
-        # Horizon embedding — ablation w/o_horizon: replace with zeros
-        h_idx = torch.tensor([HORIZON_VOCAB.get(horizon, 0)] * B, device=dev)
-        h_emb = self.h_emb_table(h_idx)  # (B, HORIZON_EMB_DIM)
-        if ablation == "w/o_horizon":
-            h_emb = torch.zeros_like(h_emb)
+        enc            = self._encode_common(market_feat, horizon, article_emb,
+                                             article_mask, article_meta_vec, ablation)
+        h_emb          = enc["h_emb"]
+        z_mkt, u_stack = enc["z_mkt"], enc["u_stack"]
+        query          = enc["query"]
+        e_i, K_h       = enc["e_i"], enc["K_h"]
+        article_meta_vec = enc["article_meta_vec"]
 
-        # Market encoding (Eq.16-19)
-        z_mkt, u_stack = self.market_enc(market_feat, h_emb)  # (B, dm), (B, 5, dm)
+        attn_w = p_fac_all = selected_mask = soft_gates = None
 
-        # ablation w/o_market: replace market encoding with zeros
-        if ablation == "w/o_market":
-            z_mkt = torch.zeros_like(z_mkt)
-            u_stack = torch.zeros_like(u_stack)
-
-        # Query (Eq.9)
-        query = self.query_proj(torch.cat([z_mkt, h_emb], dim=-1))  # (B, query_dim)
-
-        attn_w = factor_z = p_fac_all = None
-        selected_mask = None
-
-        if self.has_news and article_emb is not None and article_mask is not None:
-            K_h = self.K_h_map.get(horizon, 3)
-
-            # Metadata features (needed by both encoder Eq.8 and scorer Eq.10)
-            if article_meta_vec is None:
-                article_meta_vec = torch.zeros(B, article_emb.shape[1], META_DIM, device=dev)
-
-            # Article encoding (Eq.8): e_i = Phi_news(x_i, m_i, h)
-            e_i = self.article_enc(article_emb, article_meta_vec, h_emb)  # (B,K,article_dim)
-
+        if e_i is not None:
             if ablation == "w/o_selective_news":
-                # Average ALL articles (uniform weights), no Top-K gating
-                mask_float = article_mask.float()  # (B, K)
-                denom = mask_float.sum(dim=1, keepdim=True).clamp(min=1e-8)
-                alpha_tilde = mask_float / denom   # uniform over valid articles
-                z_news = (alpha_tilde.unsqueeze(-1) * e_i).sum(dim=1)  # (B, article_dim)
+                # Uniform attention over all valid articles — no Top-K gating
+                mask_float  = article_mask.float()
+                alpha_tilde = mask_float / mask_float.sum(dim=1, keepdim=True).clamp(min=1e-8)
+                z_news       = (alpha_tilde.unsqueeze(-1) * e_i).sum(dim=1)
                 selected_mask = article_mask.bool()
             else:
                 # Selective attention (Eq.10-13)
-                z_news, alpha_tilde, _ = self.sel_attn(e_i, query, article_mask,
-                                                        article_meta_vec, K_h)
+                z_news, alpha_tilde, a_scores = self.sel_attn(
+                    e_i, query, article_mask, article_meta_vec, K_h
+                )
                 selected_mask = alpha_tilde > 0
+                # Sigmoid soft-gates for Lsel sel_term (Eq.34): σ(a_i) ∈ [0,1].
+                # Σσ(a_i) is not constant (unlike softmax), so sel_term = (Σσ - K_h)²
+                # carries a real gradient that trains the scorer to activate ≈ K_h articles.
+                soft_gates = torch.sigmoid(a_scores) * article_mask.float()  # (B, K)
 
             if ablation == "w/o_factor":
-                # Disable factor module: set z_fac = zeros
-                z_fac = torch.zeros(B, self.factor_mod.U.out_features, device=dev)
+                z_fac     = torch.zeros(B, self.factor_mod.U.out_features, device=dev)
                 p_fac_all = torch.zeros(B, article_emb.shape[1], self.factor_mod.n_factors, device=dev)
             else:
-                # Factor module (Eq.14-15)
-                z_fac, p_fac_all = self.factor_mod(e_i, alpha_tilde)
+                z_fac, p_fac_all = self.factor_mod(e_i, alpha_tilde)  # Eq.14-15
 
-            # Mask out samples with no articles
             has_any = article_mask.any(dim=-1, keepdim=True).float()
-            z_news = z_news * has_any
-
-            # Fusion (Eq.20-22): pass u_stack so CrossAttn uses 5 K/V tokens (not 1)
-            fused = self.fusion(z_news, z_fac, z_mkt, h_emb, u_stack=u_stack)
-            attn_w = alpha_tilde
-            factor_z = z_fac
+            z_news  = z_news * has_any
+            fused   = self.fusion(z_news, z_fac, z_mkt, h_emb, u_stack=u_stack)  # Eq.20-22
+            attn_w  = alpha_tilde
         else:
             fused = self.mkt_only(z_mkt)
 
-        fused = self.final_dropout(fused)
-
-        # Prediction heads (Eq.23-25)
-        dir_logits = self.dir_head(fused)                              # (B,3)
-        ret_pred   = self.ret_head(fused).squeeze(-1)                    # (B,) plain linear — Eq.24: r̂ = W_r Z^fus + b_r
-        confidence = torch.sigmoid(self.conf_head(fused)).squeeze(-1)  # (B,) in [0,1]
-
-        # ablation w/o_confidence: replace confidence with fixed 0.5
+        fused      = self.final_dropout(fused)
+        dir_logits = self.dir_head(fused)                             # (B, 3) Eq.23
+        ret_pred   = self.ret_head(fused).squeeze(-1)                 # (B,)   Eq.24
+        confidence = torch.sigmoid(self.conf_head(fused)).squeeze(-1) # (B,)   Eq.25
         if ablation == "w/o_confidence":
             confidence = torch.full_like(confidence, 0.5)
 
         return {
-            "dir_logits":   dir_logits,
-            "ret_pred":     ret_pred,
-            "confidence":   confidence,
-            "attn_weights": attn_w,
+            "dir_logits":    dir_logits,
+            "ret_pred":      ret_pred,
+            "confidence":    confidence,
+            "attn_weights":  attn_w,
             "selected_mask": selected_mask,
-            "p_fac_all":    p_fac_all,
+            "p_fac_all":     p_fac_all,
+            "soft_gates":    soft_gates,
         }
 
     def forward_masked(self, market_feat: torch.Tensor, horizon: str,
                        article_emb: Optional[torch.Tensor] = None,
                        article_mask: Optional[torch.Tensor] = None,
-                       article_meta_vec: Optional[torch.Tensor] = None,
-                       ablation: Optional[str] = None) -> dict:
-        """Forward pass with selected articles removed (for Lfaith loss, Eq.36).
+                       article_meta_vec: Optional[torch.Tensor] = None) -> dict:
+        """Faithfulness forward pass: predict WITHOUT the top-K selected articles (Eq.36).
 
-        Computes p̂_masked by redistributing attention to unselected articles only,
-        so the model predicts "as if top-K selected articles were absent".
+        Redistributes attention weight only to UNSELECTED articles (renormalized simplex),
+        giving the model's prediction "as if the selected evidence were absent".
+        When all valid articles are selected (K_h ≥ n_valid), z_news is zeroed
+        so the prediction degrades gracefully to market-only signal.
 
-        Returns: dict with "dir_logits" key (for masked prediction)
+        Returns: {"dir_logits": (B, 3)}
         """
-        B = market_feat.shape[0]
-        dev = market_feat.device
+        enc            = self._encode_common(market_feat, horizon, article_emb,
+                                             article_mask, article_meta_vec, ablation=None)
+        h_emb          = enc["h_emb"]
+        z_mkt, u_stack = enc["z_mkt"], enc["u_stack"]
+        query          = enc["query"]
+        e_i, K_h       = enc["e_i"], enc["K_h"]
+        article_meta_vec = enc["article_meta_vec"]
 
-        # Horizon embedding
-        h_idx = torch.tensor([HORIZON_VOCAB.get(horizon, 0)] * B, device=dev)
-        h_emb = self.h_emb_table(h_idx)  # (B, HORIZON_EMB_DIM)
-
-        # Market encoding
-        z_mkt, u_stack = self.market_enc(market_feat, h_emb)  # (B, dm), (B, 5, dm)
-
-        # Query
-        query = self.query_proj(torch.cat([z_mkt, h_emb], dim=-1))  # (B, query_dim)
-
-        if self.has_news and article_emb is not None and article_mask is not None:
-            K_h = self.K_h_map.get(horizon, 3)
-
-            # Metadata features
-            if article_meta_vec is None:
-                article_meta_vec = torch.zeros(B, article_emb.shape[1], META_DIM, device=dev)
-
-            # Article encoding
-            e_i = self.article_enc(article_emb, article_meta_vec, h_emb)  # (B,K,article_dim)
-
-            # Selective attention (but then MASK it for masked prediction)
+        if e_i is not None:
             z_news, alpha_tilde, _ = self.sel_attn(e_i, query, article_mask,
                                                     article_meta_vec, K_h)
+            # Faithfulness masking (Eq.36):
+            # zero out selected articles, renormalize remaining to proper simplex.
+            selection_mask = (alpha_tilde > 0).float()
+            alpha_unsel    = alpha_tilde * (1.0 - selection_mask)
+            unsel_sum      = alpha_unsel.sum(dim=1, keepdim=True)
+            has_unsel      = (unsel_sum.squeeze(1) > 1e-8).float()   # (B,) 1=has unselected
+            alpha_renorm   = alpha_unsel / unsel_sum.clamp(min=1e-8)
 
-            # Lfaith (Eq.36): predict WITHOUT the articles selected by top-K.
-            # Step 1 — identify which articles were selected (alpha_tilde > 0).
-            # Step 2 — redistribute attention weight only to UNSELECTED articles,
-            #           renormalizing so weights still sum to 1 (proper simplex).
-            # This gives the model's prediction "as if selected articles were absent",
-            # not "with selected articles zeroed while keeping their weight" (which
-            # would make z_news ≈ 0 and conflate "no articles" with "other articles").
-            selection_mask = (alpha_tilde > 0).float()          # (B, K): 1 = selected
-            alpha_unsel    = alpha_tilde * (1.0 - selection_mask)  # zero out selected
-            alpha_renorm   = alpha_unsel / (                        # renormalize to simplex
-                alpha_unsel.sum(dim=1, keepdim=True).clamp(min=1e-8)
-            )
+            z_news = (alpha_renorm.unsqueeze(-1) * e_i).sum(dim=1) * has_unsel.unsqueeze(-1)
+            z_fac, _ = self.factor_mod(e_i, alpha_renorm * has_unsel.unsqueeze(-1))
 
-            z_news_masked = (alpha_renorm.unsqueeze(-1) * e_i).sum(dim=1)  # (B, article_dim)
-            z_news = z_news_masked
-
-            # Factor module on unselected articles with renormalized attention
-            z_fac, _ = self.factor_mod(e_i, alpha_renorm)
-
-            # Mask out samples with no articles
             has_any = article_mask.any(dim=-1, keepdim=True).float()
-            z_news = z_news * has_any
-
-            # Fusion — pass u_stack (5 K/V tokens) for meaningful cross-attention
-            fused = self.fusion(z_news, z_fac, z_mkt, h_emb, u_stack=u_stack)
+            z_news  = z_news * has_any
+            fused   = self.fusion(z_news, z_fac, z_mkt, h_emb, u_stack=u_stack)
         else:
             fused = self.mkt_only(z_mkt)
 
         fused = self.final_dropout(fused)
-
-        # Prediction heads (masked)
-        dir_logits_masked = self.dir_head(fused)  # (B, 3)
-
-        return {"dir_logits": dir_logits_masked}
+        return {"dir_logits": self.dir_head(fused)}
 
     def alert_decision(self, dir_logits: torch.Tensor, confidence: torch.Tensor,
                        horizon: str = "1h",
@@ -665,6 +669,72 @@ class SAFEAlertNet(nn.Module):
         alert = ((confidence >= tau_h) & (max_prob >= gamma_h)).long()
 
         return alert
+
+
+    def generate_explanation(
+        self,
+        outputs: dict,
+        article_meta: "list[dict]",
+        sample_idx: int = 0,
+        P: int = 3,
+        horizon: str = "1h",
+        symbol: str = "BTC",
+    ) -> dict:
+        """Generate structured + NL explanation for one prediction (Eq.27-29).
+
+        This is the public inference-time API that wraps ExplanationModule.
+        Call after `forward()` to produce human-readable alerts.
+
+        Args:
+            outputs:      dict returned by forward() for the batch
+            article_meta: list of article metadata dicts with "title" key
+            sample_idx:   which sample in the batch to explain (default 0)
+            P:            top-P factors to include (default 3)
+            horizon:      prediction horizon string for NL text
+            symbol:       ticker symbol for NL text
+
+        Returns:
+            dict with keys: selected_news, top_factors, factor_dist,
+                            factors_text, nl_explanation
+        """
+        attn_weights = outputs.get("attn_weights")   # (B, K) or None
+        p_fac_all    = outputs.get("p_fac_all")      # (B, K, C) or None
+        dir_logits   = outputs.get("dir_logits")     # (B, 3)
+        confidence   = outputs.get("confidence")     # (B,)
+
+        dir_pred = int(dir_logits[sample_idx].argmax().item()) if dir_logits is not None else 1
+        conf_val = float(confidence[sample_idx].item()) if confidence is not None else 0.0
+
+        if attn_weights is None or p_fac_all is None:
+            # Market-only mode: no article attention available
+            dir_str = {0: "giam (DOWN)", 1: "trung tinh (NEUTRAL)", 2: "tang (UP)"}.get(dir_pred, "?")
+            return {
+                "selected_news":  [],
+                "top_factors":    [],
+                "factor_dist":    [],
+                "factors_text":   "khong co tin tuc",
+                "nl_explanation": (
+                    f"Tin hieu: {symbol} co kha nang {dir_str} trong {horizon} toi. "
+                    f"Do tin cay: {conf_val:.2f}. "
+                    f"Bang chung chinh: N/A (market-only mode). "
+                    f"Yeu to chi phoi: khong ro."
+                ),
+            }
+
+        alpha_single = attn_weights[sample_idx]  # (K,)
+        p_fac_single = p_fac_all[sample_idx]     # (K, C)
+
+        return self.explainer(
+            alpha_tilde=alpha_single,
+            p_fac=p_fac_single,
+            article_meta=article_meta,
+            K_h=alpha_single.shape[0],
+            P=P,
+            direction=dir_pred,
+            confidence=conf_val,
+            horizon=horizon,
+            symbol=symbol,
+        )
 
 
 def compute_factor_pseudolabels(texts: list[str]) -> torch.Tensor:

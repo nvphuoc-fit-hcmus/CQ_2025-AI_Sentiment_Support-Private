@@ -14,7 +14,9 @@ import torch
 # Absolute path from script location
 script_file = Path(__file__).resolve()
 service_root = script_file.parent.parent.parent.parent
-data_path = service_root / "training_data"
+data_root = service_root / "training_data"
+data_v2 = data_root / "v2"
+data_path = data_v2 if data_v2.exists() else data_root
 
 articles = pd.read_csv(data_path / "articles_max.csv")
 

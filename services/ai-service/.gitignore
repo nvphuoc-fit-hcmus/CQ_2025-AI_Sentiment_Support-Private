@@ -1,0 +1,46 @@
+# ── Data files (KHÔNG push) ───────────────────────────────────
+training_data/
+*.npy
+*.csv
+*.parquet
+*.pkl
+*.h5
+*.hdf5
+
+# ── Model checkpoints & artifacts ─────────────────────────────
+*.pt
+*.pth
+*.bin
+artifacts/colab_run/fold_*/
+artifacts/colab_run/figures/
+artifacts/v2/
+
+# Giữ lại JSON kết quả (nhỏ, quan trọng cho thesis)
+!artifacts/colab_run/*.json
+
+# ── Python cache ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+
+# ── Virtual environments ───────────────────────────────────────
+venv/
+env/
+.venv/
+
+# ── Secrets ────────────────────────────────────────────────────
+.env
+.env.local
+*.key
+
+# ── IDE ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── Logs ───────────────────────────────────────────────────────
+*.log
+training_log.txt

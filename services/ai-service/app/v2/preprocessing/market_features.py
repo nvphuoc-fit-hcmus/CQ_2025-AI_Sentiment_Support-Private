@@ -456,6 +456,98 @@ def extract_multiframe_market_features(df_1h: pd.DataFrame) -> np.ndarray:
 # MARKET REGIME
 # ──────────────────────────────────────────────────────────────
 
+# True multi-timeframe override (1m -> 5m/15m/1h/4h) while keeping 1h fallback.
+_BASE_TF_PARAMS = (14, 12, 26, 9, 20, 9, 21, 14, 5, 20, 20)
+
+
+def _extract_multiframe_from_1h(df_1h: pd.DataFrame) -> np.ndarray:
+    """Fallback multiscale features from 1h candles using scaled indicator periods."""
+    result = []
+    scale_rsi = []
+
+    for scale_idx, params in enumerate(_TF_PARAMS):
+        min_rows = _MIN_ROWS_PER_TF[scale_idx]
+        if len(df_1h) < min_rows:
+            result.append(np.zeros(12, dtype=np.float32))
+            scale_rsi.append(50.0)
+            continue
+
+        feats = _compute_tf_features(df_1h, *params)
+        result.append(feats)
+        scale_rsi.append(float(feats[0]))
+
+    agg_rsi = float(np.mean(scale_rsi))
+    agg_momentum = float(scale_rsi[-1] - scale_rsi[0])
+    std_short = float(result[0][11])
+    std_long  = float(result[4][11])
+    agg_vol_ratio = std_short / (std_long + 1e-8)
+    agg_vol_ratio = float(np.clip(agg_vol_ratio, 0.0, 10.0))
+
+    result.append(np.array([agg_rsi, agg_momentum, agg_vol_ratio], dtype=np.float32))
+    features = np.concatenate(result, dtype=np.float32)
+    return features[:63].astype(np.float32)
+
+
+def _extract_multiframe_from_frames(frames: dict[str, pd.DataFrame]) -> np.ndarray:
+    """True multi-timeframe features using separate candles per timeframe."""
+    result = []
+    scale_rsi = []
+    for tf in ["1m", "5m", "15m", "1h", "4h"]:
+        df_tf = frames.get(tf)
+        if df_tf is None or len(df_tf) < 30:
+            result.append(np.zeros(12, dtype=np.float32))
+            scale_rsi.append(50.0)
+            continue
+        feats = _compute_tf_features(df_tf, *_BASE_TF_PARAMS)
+        result.append(feats)
+        scale_rsi.append(float(feats[0]))
+
+    agg_rsi = float(np.mean(scale_rsi))
+    agg_momentum = float(scale_rsi[-1] - scale_rsi[0])
+    std_short = float(result[0][11])
+    std_long  = float(result[4][11])
+    agg_vol_ratio = std_short / (std_long + 1e-8)
+    agg_vol_ratio = float(np.clip(agg_vol_ratio, 0.0, 10.0))
+
+    result.append(np.array([agg_rsi, agg_momentum, agg_vol_ratio], dtype=np.float32))
+    features = np.concatenate(result, dtype=np.float32)
+    return features[:63].astype(np.float32)
+
+
+def _looks_like_1m(df: pd.DataFrame) -> bool:
+    if len(df) < 3:
+        return False
+    ts = df["timestamp"] if "timestamp" in df.columns else df.index
+    ts = pd.to_datetime(ts, errors="coerce")
+    diffs = ts.diff().dropna()
+    if diffs.empty:
+        return False
+    median_minutes = diffs.median().total_seconds() / 60.0
+    return 0.5 <= median_minutes <= 2.0
+
+
+def extract_multiframe_market_features(df: pd.DataFrame) -> np.ndarray:
+    """
+    True multi-timeframe features when 1m candles are provided.
+    Falls back to scaled-period 1h features when only 1h data is available.
+    """
+    if _looks_like_1m(df):
+        frames = {
+            "1m": df.copy(),
+            "5m": resample_ohlcv(df, "5m"),
+            "15m": resample_ohlcv(df, "15m"),
+            "1h": resample_ohlcv(df, "1h"),
+            "4h": resample_ohlcv(df, "4h"),
+        }
+        return _extract_multiframe_from_frames(frames)
+    return _extract_multiframe_from_1h(df)
+
+
+def extract_multiframe_market_features_from_frames(frames: dict[str, pd.DataFrame]) -> np.ndarray:
+    """Public wrapper for true multi-timeframe features from pre-sliced frames."""
+    return _extract_multiframe_from_frames(frames)
+
+
 def add_market_regime(df: pd.DataFrame) -> pd.DataFrame:
     """
     Detect market regime: trending up / trending down / sideways.

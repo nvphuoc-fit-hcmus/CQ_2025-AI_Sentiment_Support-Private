@@ -1,0 +1,22 @@
+{
+  "tau": 0.5040335059165955,
+  "gamma": 0.5465039014816284,
+  "temperature": 1.8,
+  "tau_seed": 0.6176940202713013,
+  "gamma_seed": 0.5112446546554565,
+  "temperature_nll": 0.9656121730804443,
+  "temperature_source": "validation_temperature_scaling",
+  "coverage": 0.34908136482939633,
+  "alert_precision": 0.6671223640441895,
+  "val_sharpe_proxy": 0.4851928567423265,
+  "policy_source": "validation_grid_search",
+  "policy_objective": 0.5807307579333458,
+  "target_coverage": 0.35,
+  "score": 0.3579032416322826,
+  "deploy_fold": 2,
+  "mode": "walk_forward_best_fold",
+  "source_artifact": "artifacts/v2/colab_run/walk_forward_results.json",
+  "note": "Thresholds frozen from validation split of best walk-forward fold.",
+  "symbol": "BTCUSDT",
+  "horizon": "1h"
+}
