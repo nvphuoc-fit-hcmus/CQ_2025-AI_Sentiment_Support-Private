@@ -52,6 +52,10 @@ const useStore = create((set, get) => ({
   gapStats: {},
   recoveryProgress: null,
 
+  // SAFE-Alert signal state (shared between DecisionSidebar ↔ Charts)
+  safeAlertSignal: null,
+  setSafeAlertSignal: (signal) => set({ safeAlertSignal: signal }),
+
   // Helper to decode token
   decodeUser: (token) => {
     try {
