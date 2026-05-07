@@ -32,41 +32,41 @@ export const ThemeProvider = ({ children }) => {
 
         if (theme === THEMES.LIGHT) {
             root.setAttribute('data-theme', 'light');
-            // Light mode CSS variables
-            root.style.setProperty('--bg-primary', '#ffffff');
-            root.style.setProperty('--bg-secondary', '#f5f5f5');
-            root.style.setProperty('--bg-tertiary', '#e8e8e8');
-            root.style.setProperty('--bg-hover', '#e0e0e0');
-            root.style.setProperty('--text-primary', '#1a1a1a');
-            root.style.setProperty('--text-secondary', '#666666');
-            root.style.setProperty('--text-muted', '#888888');
-            root.style.setProperty('--border-color', '#d0d0d0');
+            // Light mode — TradingView-inspired
+            root.style.setProperty('--bg-primary', '#f0f3fa');
+            root.style.setProperty('--bg-secondary', '#ffffff');
+            root.style.setProperty('--bg-tertiary', '#f0f3fa');
+            root.style.setProperty('--bg-hover', '#f0f3fa');
+            root.style.setProperty('--text-primary', '#131722');
+            root.style.setProperty('--text-secondary', '#787b86');
+            root.style.setProperty('--text-muted', '#a3a6af');
+            root.style.setProperty('--border-color', '#e0e3eb');
             root.style.setProperty('--card-bg', '#ffffff');
-            root.style.setProperty('--card-border', '#e0e0e0');
+            root.style.setProperty('--card-border', '#e0e3eb');
             root.style.setProperty('--navbar-bg', '#ffffff');
-            root.style.setProperty('--sidebar-bg', '#f8f8f8');
-            root.style.setProperty('--input-bg', '#ffffff');
-            root.style.setProperty('--input-border', '#cccccc');
+            root.style.setProperty('--sidebar-bg', '#ffffff');
+            root.style.setProperty('--input-bg', '#f0f3fa');
+            root.style.setProperty('--input-border', '#e0e3eb');
             root.style.setProperty('--modal-overlay', 'rgba(0, 0, 0, 0.5)');
-            root.style.setProperty('--shadow-color', 'rgba(0, 0, 0, 0.1)');
+            root.style.setProperty('--shadow-color', 'rgba(0, 0, 0, 0.08)');
         } else {
             root.setAttribute('data-theme', 'dark');
-            // Dark mode CSS variables (default)
-            root.style.setProperty('--bg-primary', '#0a0a0a');
-            root.style.setProperty('--bg-secondary', '#1a1a1a');
-            root.style.setProperty('--bg-tertiary', '#2a2a2a');
-            root.style.setProperty('--bg-hover', '#333333');
-            root.style.setProperty('--text-primary', '#ffffff');
-            root.style.setProperty('--text-secondary', '#aaaaaa');
-            root.style.setProperty('--text-muted', '#666666');
-            root.style.setProperty('--border-color', '#333333');
-            root.style.setProperty('--card-bg', '#1a1a1a');
-            root.style.setProperty('--card-border', '#2a2a2a');
-            root.style.setProperty('--navbar-bg', '#111111');
-            root.style.setProperty('--sidebar-bg', '#141414');
-            root.style.setProperty('--input-bg', '#1a1a1a');
-            root.style.setProperty('--input-border', '#333333');
-            root.style.setProperty('--modal-overlay', 'rgba(0, 0, 0, 0.8)');
+            // Dark mode — TradingView-inspired
+            root.style.setProperty('--bg-primary', '#131722');
+            root.style.setProperty('--bg-secondary', '#1e222d');
+            root.style.setProperty('--bg-tertiary', '#2a2e39');
+            root.style.setProperty('--bg-hover', '#2a2e39');
+            root.style.setProperty('--text-primary', '#d1d4dc');
+            root.style.setProperty('--text-secondary', '#787b86');
+            root.style.setProperty('--text-muted', '#555962');
+            root.style.setProperty('--border-color', '#2a2e39');
+            root.style.setProperty('--card-bg', '#1e222d');
+            root.style.setProperty('--card-border', '#2a2e39');
+            root.style.setProperty('--navbar-bg', '#131722');
+            root.style.setProperty('--sidebar-bg', '#1e222d');
+            root.style.setProperty('--input-bg', '#1a1e2d');
+            root.style.setProperty('--input-border', '#2a2e39');
+            root.style.setProperty('--modal-overlay', 'rgba(0, 0, 0, 0.75)');
             root.style.setProperty('--shadow-color', 'rgba(0, 0, 0, 0.5)');
         }
 

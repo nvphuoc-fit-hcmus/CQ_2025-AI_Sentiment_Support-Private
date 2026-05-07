@@ -95,7 +95,7 @@ function UserApp() {
 // Component cho trang Admin
 function AdminApp() {
   return (
-    <div className="admin-app-container" style={{ minHeight: '100vh', background: '#121212' }}>
+    <div className="admin-app-container" style={{ minHeight: '100vh', background: 'var(--bg-dark, #131722)' }}>
       <AdminDashboard />
     </div>
   );
