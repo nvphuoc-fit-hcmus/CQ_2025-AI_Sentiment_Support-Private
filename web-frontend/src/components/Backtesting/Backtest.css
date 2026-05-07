@@ -4,6 +4,8 @@
     color: var(--text-primary);
     min-height: 100vh;
     animation: fadeIn var(--transition-base);
+    font-family: var(--font-family);
+    overflow-y: auto;
 }
 
 .backtest-header {
@@ -16,10 +18,11 @@
 }
 
 .backtest-title {
-    font-size: 28px;
+    font-size: var(--font-size-xl);
     font-weight: 800;
     background: linear-gradient(to right, var(--accent-blue), #a855f7);
     -webkit-background-clip: text;
+    background-clip: text;
     color: transparent;
     display: flex;
     align-items: center;
@@ -50,7 +53,7 @@
 .strategy-card {
     background-color: var(--bg-panel);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     padding: 24px;
     box-shadow: var(--shadow-md);
     height: fit-content;
@@ -94,9 +97,10 @@
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     padding: 10px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     outline: none;
-    font-size: 14px;
+    font-size: var(--font-size-base);
+    font-family: var(--font-family);
     transition: border-color var(--transition-fast);
 }
 
@@ -193,19 +197,20 @@
 
 .btn-primary {
     width: 100%;
-    background: linear-gradient(135deg, var(--accent-blue) 0%, #2952cc 100%);
+    background: linear-gradient(135deg, var(--accent-blue) 0%, #1e54e4 100%);
     color: white;
-    padding: 16px;
+    padding: 14px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     font-weight: 700;
-    font-size: 16px;
+    font-size: var(--font-size-md);
+    font-family: var(--font-family);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
-    box-shadow: var(--shadow-glow-blue);
+    box-shadow: 0 4px 14px rgba(41, 98, 255, 0.3);
     transition: all var(--transition-base);
 }
 

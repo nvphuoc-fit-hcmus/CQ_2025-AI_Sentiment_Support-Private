@@ -1,54 +1,59 @@
 .admin-navbar {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 16px 30px;
-    background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
-    border-bottom: 1px solid #333;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 48px;
+    background-color: var(--bg-panel, #1e222d);
+    border-bottom: 1px solid var(--border-color, #2a2e39);
+    font-family: var(--font-family, 'Inter', sans-serif);
 }
 
-.admin-nav-left {
+.admin-navbar-brand {
     display: flex;
     align-items: center;
+    gap: 10px;
+    font-size: var(--font-size-md, 14px);
+    font-weight: 700;
+    color: var(--text-primary, #d1d4dc);
 }
 
-.admin-brand {
+.admin-navbar-brand svg {
+    color: var(--accent-blue, #2962ff);
+}
+
+.admin-navbar-actions {
     display: flex;
     align-items: center;
     gap: 12px;
-    font-size: 20px;
-    font-weight: 700;
-    color: #fff;
 }
 
-.admin-brand-icon {
-    color: #f1c40f;
-    filter: drop-shadow(0 0 8px rgba(241, 196, 15, 0.5));
-}
-
-.admin-nav-right {
-    display: flex;
-    align-items: center;
-    gap: 16px;
+.admin-badge {
+    font-size: var(--font-size-xs, 11px);
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: rgba(240, 185, 11, 0.12);
+    color: var(--accent-yellow, #f0b90b);
+    border: 1px solid rgba(240, 185, 11, 0.25);
 }
 
 .admin-logout-btn {
+    background: none;
+    border: 1px solid var(--border-color, #2a2e39);
+    color: var(--text-secondary, #787b86);
+    padding: 6px 12px;
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    font-size: var(--font-size-sm, 12px);
+    font-family: var(--font-family, 'Inter', sans-serif);
     display: flex;
     align-items: center;
-    gap: 8px;
-    background-color: #c0392b;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
-    transition: all 0.2s;
+    gap: 6px;
+    transition: all var(--transition-fast, 0.15s);
 }
 
 .admin-logout-btn:hover {
-    background-color: #e74c3c;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(231, 76, 60, 0.4);
+    color: var(--accent-red, #f23645);
+    border-color: var(--accent-red, #f23645);
 }
