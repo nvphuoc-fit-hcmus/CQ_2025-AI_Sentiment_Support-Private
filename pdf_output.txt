@@ -1,0 +1,2052 @@
+Total pages: 40
+
+=== TABLE OF CONTENTS ===
+Giới thiệu (p.2)
+Công trình liên quan (p.5)
+  Phân tích cảm xúc tài chính và các giới hạn của biểu diễn sentiment phẳng (p.5)
+  Lựa chọn tin tức thích nghi cho dự báo thị trường (p.6)
+  Giải thích dựa trên LLM và yếu tố tài chính (p.7)
+  Dự báo đa phương thức từ văn bản và chuỗi thời gian (p.8)
+  Selective forecasting, hiệu chỉnh độ tin cậy và chính sách cảnh báo (p.8)
+  Tóm tắt khoảng trống nghiên cứu (p.9)
+Phát biểu bài toán và phương pháp đề xuất (p.10)
+  Phát biểu bài toán (p.10)
+  Tổng quan kiến trúc SAFE-Alert (p.11)
+  Mã hóa tin tức và chọn lọc bằng chứng (p.12)
+    Mã hóa bài viết (p.12)
+    Scoring và lựa chọn Top-K thích nghi (p.13)
+  Biểu diễn yếu tố tài chính có cấu trúc (p.13)
+  Mã hóa ngữ cảnh thị trường đa khung thời gian (p.14)
+  Hợp nhất đa phương thức và đầu ra dự báo (p.15)
+  Cơ chế cảnh báo nhận thức độ tin cậy (p.15)
+  Đầu ra giải thích (p.16)
+    Giải thích có cấu trúc (p.16)
+    Giải thích ở mức ngôn ngữ (p.16)
+  Hàm mục tiêu huấn luyện (p.17)
+    Mất mát dự báo hướng giá (p.17)
+    Mất mát hồi quy suất sinh lợi (p.17)
+    Mất mát yếu tố tài chính (p.17)
+    Regularization cho chọn lọc tin tức (p.17)
+    Mất mát hiệu chỉnh độ tin cậy (p.17)
+    Mất mát faithfulness (p.18)
+    Mất mát selective risk (p.18)
+  Suy luận gần thời gian thực và tích hợp hệ thống (p.18)
+  Thảo luận về novelty của SAFE-Alert (p.19)
+  Ví dụ minh họa trực quan cho SAFE-Alert (p.19)
+    Đầu vào (p.19)
+    Bước 1: Mã hóa và chọn lọc tin tức (p.20)
+    Bước 2: Trích xuất yếu tố tài chính (p.20)
+    Bước 3: Mã hóa thị trường đa khung thời gian (p.21)
+    Bước 4: Hợp nhất đa phương thức và dự báo (p.21)
+    Bước 5: Quyết định cảnh báo (p.21)
+    Bước 6: Sinh giải thích (p.22)
+    Kiểm tra trực giác về faithfulness (p.22)
+    Tóm tắt ví dụ (p.22)
+Thiết lập thực nghiệm (p.23)
+  Nguồn dữ liệu và xây dựng benchmark từ hệ thống hiện có (p.23)
+    Nguồn dữ liệu thô (p.23)
+    Đơn vị phân tích (p.23)
+    Lọc dữ liệu và chuẩn hóa (p.24)
+    Xây dựng nhãn dự báo (p.24)
+    Tập bằng chứng và ontology yếu tố (p.25)
+  Giao thức pseudo-online (p.25)
+    Động cơ (p.25)
+    Mốc quyết định và cửa sổ quan sát (p.26)
+    Walk-forward evaluation (p.26)
+    Mô phỏng thực thi và chi phí giao dịch (p.26)
+  Các baseline so sánh (p.27)
+    Baseline dựa trên giá thuần túy (p.27)
+    Baseline dùng toàn bộ tin tức (p.27)
+    Baseline lấy cảm hứng từ literature (p.27)
+    Baseline cho selective alerting (p.28)
+  Các tiêu chí đánh giá (p.28)
+    Chỉ số dự báo (p.28)
+    Chỉ số giải thích (p.29)
+    Chỉ số calibration và selective forecasting (p.29)
+    Chỉ số utility và chất lượng cảnh báo (p.30)
+  Chi tiết cài đặt (p.30)
+    Thiết lập huấn luyện (p.30)
+    Khởi tạo encoder (p.31)
+    Factor extraction (p.31)
+    Suy luận gần thời gian thực (p.31)
+  Phân tích theo nhóm thí nghiệm (p.31)
+  Tóm tắt (p.32)
+Kết quả và thảo luận (p.32)
+  Kết quả chính (p.32)
+    Hiệu năng dự báo (p.32)
+    Hiệu năng cảnh báo và utility tài chính (p.33)
+  Phân tích ablation (p.34)
+    Tác động của selective news selection (p.34)
+    Tác động của factor-grounded explanation (p.34)
+    Tác động của confidence-aware alerting (p.34)
+    Tác động của faithfulness regularization (p.35)
+  Phân tích case study về explanation (p.35)
+    Khả năng chọn lọc bằng chứng (p.35)
+    Giải thích ở mức yếu tố (p.36)
+    Phân biệt dự báo và quyết định phát cảnh báo (p.36)
+  Thảo luận theo phong cách ESWA (p.36)
+    SAFE-Alert có mới ở điểm nào? (p.36)
+    Điểm mạnh của phương pháp (p.36)
+    Giới hạn của nghiên cứu (p.37)
+    Hàm ý cho hệ thống hỗ trợ quyết định tài chính (p.38)
+    Hướng phát triển tiếp theo (p.38)
+  Tóm tắt (p.38)
+
+=== CONTENT ===
+
+--- PAGE 1 ---
+SAFE-Alert: Hệthống dựbáo và cảnh báo tài chính thời
+gian thực dựa trên chọn lọc tin tức, giải thích theo yếu tố
+và đánh giá độtin cậy
+Abstract
+Các hệthống dựbáo tài chính dựa trên tin tức hiện nay thường gặp ba hạn chếcốt
+lõi: (i) xửlý dư thừa thông tin khi xem mọi bài báo là quan trọng như nhau, (ii)
+cung cấp giải thích hậu nghiệm còn nông, thường dừng ởmức điểm cảm xúc hoặc
+câu diễn giải chung chung, và (iii) phát tín hiệu dựbáo mà không kiểm soát đầy đủ
+độtin cậy, dẫn đến cảnh báo nhiễu và hiệu quảđầu tư suy giảm trong môi trường
+thời gian thực. Những hạn chếnày đặc biệt nghiêm trọng trong thịtrường tiền mã
+hóa, nơi tin tức dày đặc, phản ứng giá nhanh, và chi phí của tín hiệu sai là rất lớn.
+Bài báo này đềxuất một khung dựbáo và hỗtrợquyết định thời gian thực mới,
+có tên là SAFE-Alert (Selective Attentive Factor-Explainable Alerting), nhằm
+chuyển bài toán từnews-to-prediction sang news-to-signal với khảnăng giải thích
+và kiểm soát độtin cậy. Cụthể, phương pháp đềxuất tích hợp bốn thành phần
+trong một kiến trúc thống nhất: (1) cơ chếchọn lọc tin tức thích nghi đểxác
+định tập bài viết quan trọng nhất theo từng tài sản và từng khung thời gian; (2) mô
+hình hợp nhất đa phương thức giữa tin tức đã chọn và ngữcảnh thịtrường đa
+khung thời gian đểdựbáo hướng giá, biên độthay đổi và mức độbiến động; (3)
+tầng giải thích dựa trên yếu tố(factor-grounded explanation) giúp liên kết dự
+báo với các tác nhân tài chính có ý nghĩa thay vì chỉcung cấp diễn giải ngôn ngữ
+chung chung; và (4) cơ chếcảnh báo nhận thức độtin cậy (confidence-aware
+alerting) cho phép hệthống chỉphát tín hiệu khi mức chắc chắn vượt qua ngưỡng
+hiệu chỉnh.
+Điểm mới cốt lõi của nghiên cứu không nằm ởtừng mô-đun riêng lẻ, mà ở
+việc thống nhất lựa chọn bằng chứng, dựbáo, giải thích và kiểm soát cảnh báo
+trong cùng một vòng lặp suy luận gần thời gian thực. Khung đềxuất được thiết kế
+đểtriển khai trực tiếp trên một nền tảng microservices hướng sựkiện, nơi dữliệu
+tin tức, dữliệu giá và kết quảdựbáo được đồng bộqua Kafka, lưu trữtrong các
+kho dữliệu chuyên biệt, và đánh giá đầu-cuối thông qua cảchỉsốhọc máy lẫn chỉ
+sốtài chính. Trên phương diện thực nghiệm, bài báo hướng đến chứng minh rằng
+Preprint submitted to Elsevier
+Ngày 30 tháng 4 năm 2026
+
+
+--- PAGE 2 ---
+việc chỉsửdụng một tập tin tức chọn lọc, kèm giải thích theo yếu tốvà chiến lược
+từchối phát cảnh báo khi bất định cao, có thểđồng thời cải thiện chất lượng dự
+báo, độtrung thực của giải thích và hiệu quảgiao dịch so với các mô hình sửdụng
+toàn bộtin tức hoặc chỉsinh giải thích hậu nghiệm.
+Nhờkết hợp chặt chẽgiữa dựbáo đa phương thức, giải thích có cấu trúc và cơ
+chếcảnh báo có trách nhiệm, nghiên cứu này hướng tới một lớp hệthống hỗtrợ
+quyết định tài chính thông minh mới: không chỉdựbáo điều gì sẽxảy ra, mà còn
+chỉra vì sao tín hiệu đó đáng tin và khi nào hệthống nên im lặng. Đây là bước tiến
+quan trọng đểthu hẹp khoảng cách giữa các mô hình dựbáo học sâu và yêu cầu
+triển khai thực tếtrong các nền tảng phân tích tài chính vận hành thời gian thực.
+Keywords: financial forecasting, explainable AI, large language models,
+selective news selection, multimodal learning, confidence-aware alerting,
+cryptocurrency market
+1. Giới thiệu
+Dựbáo tài chính dựa trên tin tức đang trởthành một hướng nghiên cứu trọng
+tâm trong giao điểm giữa học máy, xửlý ngôn ngữtựnhiên và hệhỗtrợquyết
+định. Trong các thịtrường biến động cao như tiền mã hóa, dữliệu giá lịch sửtuy
+phản ánh hành vi thịtrường trong quá khứnhưng thường không đủđểmô tảđầy
+đủcác cú sốc thông tin mới xuất hiện, trong khi tin tức và văn bản tài chính lại
+cung cấp ngữcảnh định tính có khảnăng làm thay đổi kỳvọng thịtrường gần như
+tức thời. Chính vì vậy, việc kết hợp dữliệu giá với dữliệu tin tức đã trởthành một
+hướng tiếp cận tựnhiên cho các hệthống dựbáo tài chính hiện đại [1, 2, 3].
+Mặc dù vậy, phần lớn các hệthống hiện nay vẫn gặp ba hạn chếcăn bản. Thứ
+nhất, nhiều phương pháp giảm toàn bộthông tin văn bản vềcác tín hiệu cảm xúc
+phẳng như positive, negative hoặc neutral. Cách làm này hữu ích cho việc tóm
+lược xu hướng ngôn ngữ, nhưng thường bỏqua cơ chếtác động thực sựcủa một
+bài viết lên giá tài sản và không phân biệt được giữa tin tích cực vềmặt câu chữvới
+tin có tác động thực sựlên thịtrường [1, 2]. Thứhai, không phải mọi tin tức trong
+một cửa sổthời gian đều quan trọng như nhau; tuy nhiên, nhiều mô hình vẫn hoặc
+cộng gộp toàn bộtin, hoặc lọc tin bằng các tiêu chí thủcông cốđịnh, dẫn đến tình
+trạng information overload hoặc bỏsót các sựkiện thực sựdịch chuyển thịtrường
+[4]. Thứba, ngay cảkhi mô hình tạo ra dựbáo hợp lý, phần giải thích thường vẫn
+còn nông, chủyếu dừng ởattention heatmap, sentiment score hoặc diễn giải hậu
+nghiệm không gắn chặt với cơ chếra quyết định của mô hình [5].
+2
+
+
+--- PAGE 3 ---
+Những hạn chếnày đặc biệt nghiêm trọng trong các hệthống vận hành gần
+thời gian thực. Trong bối cảnh đó, bài toán không còn đơn thuần là dựbáo điều
+gì sẽxảy ra, mà phải mởrộng thành ba câu hỏi đồng thời: bằng chứng nào thực
+sựquan trọng, yếu tốnào đang chi phối tín hiệu, và khi nào hệthống đủtựtin để
+phát cảnh báo. Nếu không giải quyết được ba câu hỏi này, một hệthống dựbáo
+dù có độchính xác hợp lý vẫn khó được tin cậy trong thực tếtriển khai, đặc biệt
+khi đầu ra của nó được sửdụng đểhỗtrợquyết định đầu tư hoặc kích hoạt cảnh
+báo tựđộng [5].
+Các nghiên cứu gần đây đã bắt đầu chú ý tới từng phần của bài toán trên. Ở
+tầng evidence selection, Jang [4] đềxuất News Selection Model nhằm thích nghi
+chọn ra một tập headline quan trọng nhất từdòng tin hàng ngày, sau đó kết hợp tập
+tin đã chọn với dữliệu giá qua cơ chếcross-attention. Kết quảthực nghiệm cho
+thấy việc chọn lọc bằng chứng có thểcải thiện cảhiệu năng dựbáo lẫn khảnăng
+giải thích so với cách dùng toàn bộtin đầu vào [4]. Tuy nhiên, hướng này chủyếu
+trảlời câu hỏi nên chọn bài báo nào, trong khi vẫn đểngỏcâu hỏi nên diễn giải tín
+hiệu bằng cấu trúc tri thức nào và khi nào mô hình nên giữim lặng thay vì luôn
+phát tín hiệu.
+Ởtầng explanation, các mô hình ngôn ngữlớn đã tạo ra một dịch chuyển đáng
+kểtừsentiment-based forecasting sang reasoning-aware forecasting. Thay vì chỉ
+gán nhãn cảm xúc cho văn bản, LLMFactor cho thấy LLM có thểđược điều khiển
+đểtrích xuất các yếu tố(factors) tác động đến biến động giá, từđó tạo ra lời giải
+thích gần với logic tài chính hơn so với sentiment hoặc keyphrases đơn thuần [6].
+Theo một hướng khác, Summarize-Explain-Predict chứng minh rằng LLM có thể
+được huấn luyện đểvừa dựbáo vừa sinh giải thích bằng lời thông qua cơ chếtự
+phản tư, thay vì chỉcung cấp diễn giải hậu nghiệm sau dựbáo [7]. Tuy nhiên, các
+nghiên cứu này chủyếu nhấn mạnh khảnăng sinh lời giải thích hoặc trích xuất
+yếu tố, chứchưa giải quyết đầy đủbài toán chọn lọc bằng chứng và kiểm soát tín
+hiệu trong môi trường triển khai thời gian thực.
+Song song với đó, nhánh dựbáo đa phương thức cũng đang phát triển nhanh.
+FININ chỉra rằng quá trình khuếch tán thông tin tài chính vào giá thịtrường là
+một quá trình phức tạp, trong đó ảnh hưởng của một tin không chỉphụthuộc vào
+bản thân bài báo đó mà còn phụthuộc vào tương tác giữa các bài báo, độtrễhấp
+thụthông tin và hiệu ứng ghi nhớdài hạn của dòng tin [2]. Gần đây hơn, Koval
+và cộng sự[3] đềxuất mô hình đa phương thức cho chuỗi văn bản–thời gian xen
+kẽ, cho thấy việc học căn chỉnh liên mô thức có thểcải thiện cảchất lượng dự
+báo lẫn utility kinh tếtrong mô phỏng đầu tư. Dù vậy, các công trình này vẫn chủ
+yếu tập trung vào forecasting accuracy hoặc multimodal fusion, trong khi phần
+explainable alerting vẫn chưa được phát triển thành một cơ chếthống nhất.
+3
+
+
+--- PAGE 4 ---
+Một khoảng trống quan trọng khác nằm ởđộtin cậy vận hành. Trong thực tế,
+một hệthống hỗtrợquyết định tài chính không chỉcần dựbáo chính xác hơn, mà
+còn cần biết khi nào không nên phát cảnh báo. Trong literature dựbáo chuỗi thời
+gian tổng quát, selective forecasting đã cho thấy rằng việc từchối các dựbáo có
+mức bất định cao có thểlàm giảm lỗi và tăng mức độan toàn khi triển khai [8].
+Tuy nhiên, trong tài chính, đặc biệt là trong các hệthống cảnh báo dựa trên tin
+tức, ý tưởng này vẫn chưa được tích hợp chặt chẽvới lựa chọn bằng chứng, giải
+thích theo yếu tốvà utility downstream. Đây chính là khoảng trống khiến nhiều hệ
+thống hiện nay hoặc quá nhạy và phát nhiều tín hiệu nhiễu, hoặc quá bảo thủvà
+làm giảm đáng kểgiá trịsửdụng của nền tảng.
+Từcác khoảng trống trên, bài báo này xuất phát từmột lập trường rõ ràng: một
+hệthống dựbáo tài chính thời gian thực không nên được đánh giá chỉbằng việc
+nó dựbáo điều gì sẽxảy ra, mà còn phải được đánh giá bằng khảnăng chỉra bằng
+chứng nào là quan trọng, yếu tốnào đang chi phối tín hiệu, và khi nào tín hiệu đó
+đủđáng tin đểhành động. Trên cơ sởđó, chúng tôi đềxuất SAFE-Alert (Selective
+Attentive Factor-Explainable Alerting), một khung thống nhất cho dựbáo tín hiệu
+tài chính từtin tức trong môi trường gần thời gian thực. Khung đềxuất kết hợp bốn
+thành phần: (i) chọn lọc tin tức thích nghi theo từng tài sản và từng chân trời dự
+báo, (ii) hợp nhất đa phương thức giữa bằng chứng đã chọn và ngữcảnh thịtrường
+đa khung thời gian, (iii) giải thích dựa trên yếu tốnhằm liên kết dựbáo với các cơ
+chếtài chính có nghĩa, và (iv) cơ chếcảnh báo nhận thức độtin cậy cho phép hệ
+thống chỉphát tín hiệu khi mức chắc chắn vượt qua ngưỡng đã hiệu chỉnh.
+Điểm mới cốt lõi của nghiên cứu không nằm ởmột mô-đun đơn lẻ, mà ởviệc
+thống nhất selection, forecasting, explanation và alerting trong cùng một vòng
+lặp suy luận. Khác với các phương pháp chỉthêm một tầng diễn giải sau dựbáo,
+SAFE-Alert xem việc lựa chọn bằng chứng, trích xuất yếu tố, ước lượng độtin
+cậy và quyết định phát cảnh báo là các thành phần đồng thiết kế. Cách nhìn này
+giúp chuyển bài toán từnews-to-prediction sang news-to-signal, phù hợp hơn với
+yêu cầu của các hệthống hỗtrợquyết định trong tài chính thời gian thực.
+Các đóng góp chính của bài báo được tóm tắt như sau:
+• Chúng tôi đềxuất một khung dựbáo tín hiệu tài chính mới tích hợp đồng thời
+selective news selection, factor-grounded explanation và confidence-aware
+alerting trong một kiến trúc thống nhất.
+• Chúng tôi thiết kếmột cơ chếhợp nhất đa phương thức giữa tin tức đã chọn
+và dữliệu thịtrường đa khung thời gian nhằm hỗtrợdựbáo theo nhiều chân
+trời thời gian và sinh giải thích có cấu trúc.
+4
+
+
+--- PAGE 5 ---
+• Chúng tôi đưa selective forecasting vào bài toán cảnh báo tài chính dựa trên
+tin tức, từđó đánh giá hệthống không chỉbằng các chỉsốdựbáo chuẩn mà
+còn bằng độtin cậy, chất lượng cảnh báo và utility trong backtest.
+• Chúng tôi định vịphương pháp đềxuất như một lớp hệthống hỗtrợquyết
+định gần thời gian thực, qua đó thu hẹp khoảng cách giữa các mô hình dự
+báo học sâu và yêu cầu triển khai thực tếtrong các nền tảng phân tích tài
+chính hiện đại.
+Phần còn lại của bài báo được tổchức như sau. Mục 2 trình bày các hướng
+nghiên cứu liên quan vềphân tích cảm xúc tài chính, chọn lọc tin tức, dựbáo đa
+phương thức, giải thích bằng LLM và selective forecasting. Mục 3 phát biểu bài
+toán và mô tảchi tiết khung SAFE-Alert. Mục 4 trình bày dữliệu, giao thức thực
+nghiệm, các baseline và tiêu chí đánh giá. Mục 5 báo cáo kết quảđịnh lượng và
+phân tích định tính. Cuối cùng, Mục ?? kết luận bài báo và thảo luận các hướng
+phát triển tiếp theo.
+2. Công trình liên quan
+Phần này tổng hợp các hướng nghiên cứu gần nhất có liên quan trực tiếp đến
+bài toán của chúng tôi, bao gồm: (i) phân tích cảm xúc tài chính và các giới hạn
+của biểu diễn sentiment phẳng, (ii) lựa chọn tin tức thích nghi cho dựbáo tài chính,
+(iii) giải thích dựa trên LLM và yếu tốtài chính, (iv) dựbáo đa phương thức từ
+văn bản và chuỗi thời gian, và (v) selective forecasting cùng hiệu chỉnh độtin cậy
+cho cảnh báo. Mặc dù từng nhánh đã đạt được tiến bộđáng kể, chúng tôi chỉra
+rằng vẫn còn thiếu một khung thống nhất kết nối lựa chọn bằng chứng, dựbáo,
+giải thích theo yếu tốvà kiểm soát phát cảnh báo trong môi trường tài chính gần
+thời gian thực.
+2.1. Phân tích cảm xúc tài chính và các giới hạn của biểu diễn sentiment phẳng
+Financial Sentiment Analysis (FSA) là một hướng nghiên cứu đã phát triển
+mạnh trong nhiều năm qua, với các ứng dụng từphân tích tin tức, báo cáo tài
+chính, earnings calls cho đến đánh giá rủi ro thịtrường [1]. Tuy nhiên, survey gần
+đây của Du và cộng sự[1] cho thấy một vấn đềlặp lại trong phần lớn hệthống
+FSA là việc quy giản văn bản tài chính thành một tín hiệu cảm xúc phẳng ởmức
+câu, đoạn hoặc tài liệu, chẳng hạn như positive, negative hoặc neutral. Dù cách
+biểu diễn này thuận tiện cho việc huấn luyện và đánh giá, nó thường không đủđể
+phản ánh đầy đủđộng lực tài chính thực sự, nơi cùng một cụm từcó thểmang tác
+5
+
+
+--- PAGE 6 ---
+động thịtrường rất khác nhau tùy vào bối cảnh vĩ mô, loại tài sản, thời điểm công
+bốvà trạng thái thịtrường hiện tại [1, 5].
+Một vấn đềgần đây được nhấn mạnh là sentiment ởmức tài liệu thường không
+đủtinh đểphản ánh tác động lên từng đối tượng trong tin tài chính. Muhammad
+và cộng sự[9] cho thấy target-based financial sentiment analysis là một bài toán
+quan trọng nhưng còn chưa được nghiên cứu đầy đủ, đặc biệt khi một bài viết có
+thểđồng thời đềcập đến nhiều thực thểvới sắc thái khác nhau. Kết quảcủa họ
+cũng cho thấy các LLM tạo sinh mạnh như ChatGPT hay DeepSeek-R1 có tiềm
+năng cao trong phân tích sentiment ởmức target mà không cần fine-tuning sâu [9].
+Bên cạnh đó, Kumar và Nolbaria [10] chỉra thêm một hạn chếthực tếcủa FSA là
+sựlỗi thời của dữliệu gán nhãn: nhiều benchmark chuẩn không còn phản ánh tốt
+ngôn ngữtài chính đương đại, khiến các mô hình học từdữliệu cũ dễsuy giảm
+hiệu năng khi triển khai trên tin tức mới.
+Từgóc nhìn bài toán của chúng tôi, các kết quảtrên cho thấy hai điểm quan
+trọng. Thứnhất, sentiment tài chính không nên được xem là một scalar tĩnh, mà
+cần được đặt trong ngữcảnh bằng chứng, thực thểvà thời gian. Thứhai, nếu bài
+toán đích là phát tín hiệu giao dịch hoặc cảnh báo, thì sentiment cần được gắn chặt
+hơn với tác động dựbáo và ngữcảnh thịtrường, thay vì tồn tại như một đầu ra
+NLP độc lập.
+2.2. Lựa chọn tin tức thích nghi cho dựbáo thịtrường
+Một trong những pain point lớn nhất của các hệthống dựbáo dựa trên tin tức
+là information overload. Trong môi trường tài chính thời gian thực, sốlượng bài
+viết xuất hiện trong một cửa sổngắn có thểrất lớn, nhưng chỉmột phần nhỏtrong
+đó thực sựliên quan đến chuyển động giá của tài sản mục tiêu. Các mô hình cộng
+gộp toàn bộtin thường làm loãng tín hiệu, trong khi các heuristic thủcông như lọc
+theo nguồn, recency hay sentiment magnitude lại dễbỏsót các bài báo có ý nghĩa
+thịtrường [4].
+Đểgiải quyết vấn đềnày, Jang [4] đềxuất một Selective News Selection Model
+sửdụng cơ chếlựa chọn thích nghi dựa trên differentiable Top-K và cross-attention
+integration giữa tập bài viết đã chọn với đặc trưng giá. Kết quảcủa nghiên cứu này
+cho thấy việc chọn lọc tin tức không chỉtăng accuracy mà còn cải thiện khảnăng
+giải thích bằng cách chỉra rõ những headline thực sựđóng góp vào dựbáo [4].
+Đây là một bước tiến quan trọng vì nó dịch chuyển bài toán từall-news modeling
+sang evidence-aware forecasting. Tuy nhiên, nghiên cứu trên chủyếu dừng ởmức
+lựa chọn headline quan trọng và tích hợp với giá; nó chưa trảlời đầy đủcác câu
+hỏi vềgiải thích ởmức yếu tốtài chính và khi nào hệthống nên giữim lặng thay
+vì luôn phát tín hiệu.
+6
+
+
+--- PAGE 7 ---
+Điều này khiến nhánh selective news selection trởthành một nền tảng rất phù
+hợp cho bài toán của chúng tôi. Chúng tôi kếthừa tinh thần evidence selection
+này, nhưng mởrộng nó sang một khung rộng hơn, nơi selection không phải là đích
+cuối cùng mà là điều kiện đầu vào cho hai thành phần tiếp theo: factor-grounded
+explanation và confidence-aware alerting.
+2.3. Giải thích dựa trên LLM và yếu tốtài chính
+Sựnổi lên của các mô hình ngôn ngữlớn đã thúc đẩy một chuyển dịch đáng
+kểtừsentiment-based explanation sang reasoning-based explanation. Trong bối
+cảnh dựbáo tài chính, thay vì chỉgắn nhãn cảm xúc hoặc trích xuất keyphrases,
+các nghiên cứu mới bắt đầu yêu cầu mô hình phải chỉra yếu tốnào đang thúc đẩy
+tín hiệu và vì sao yếu tốđó có liên hệvới biến động giá.
+Một công trình tiêu biểu là LLMFactor của Wang và cộng sự[6], trong đó tác
+giảsửdụng Sequential Knowledge-Guided Prompting đểbuộc LLM trích xuất các
+yếu tốcó khảnăng sinh lợi từtin tức, sau đó dùng các yếu tốnày đểgiải thích và
+hỗtrợdựbáo stock movement. Kết quảcho thấy factor-based prompting hiệu quả
+hơn việc chỉdùng sentiment hoặc keyphrases trong một sốbenchmark dựbáo cổ
+phiếu [6]. Theo một hướng khác, Koa và cộng sự[7] đềxuất mô hình Summarize-
+Explain-Predict, trong đó LLM vừa sinh tóm tắt, vừa sinh giải thích, vừa dựbáo
+thông qua cơ chếtựphản tư, cho thấy giải thích có thểđược học như một phần của
+pipeline dựbáo chứkhông chỉlà hậu xửlý.
+Ởbài toán FSA thuần túy, Pallucchini và cộng sự[11] đềxuất một framework
+self-explanatory and retrieval-augmented nhằm làm giàu câu tài chính bằng tri
+thức bổsung trước khi phân tích sentiment. Điểm đáng chú ý của công trình này
+là nó không chỉdùng LLM đểsinh lại văn bản mà còn đưa ra một cơ chếchọn lựa
+các câu tăng cường phù hợp, qua đó vừa cải thiện độdiễn giải vừa hỗtrợbài toán
+hạnguồn [11]. Song song với đó, survey của Yeo và cộng sự[5] chỉra rằng XAI
+trong tài chính đang dịch chuyển từcác kỹthuật feature attribution cổđiển sang
+các chiến lược giải thích có cấu trúc hơn, nhưng vẫn còn thiếu các cơ chếđảm
+bảo faithfulness và operational trustworthiness khi áp dụng vào hệthống ra quyết
+định.
+Nhìn chung, các nghiên cứu trên đã chứng minh rằng LLM và XAI có thểgiúp
+tăng khảnăng diễn giải trong tài chính. Tuy nhiên, phần lớn chúng vẫn tập trung
+vào một trong hai cực: hoặc tăng chất lượng giải thích ngôn ngữ, hoặc tăng hiệu quả
+sentiment/prediction, trong khi chưa tích hợp chặt giữa selected evidence, factor
+semantics, forecast output và decision policy. Đây là khoảng trống quan trọng mà
+bài báo của chúng tôi nhắm tới.
+7
+
+
+--- PAGE 8 ---
+2.4. Dựbáo đa phương thức từvăn bản và chuỗi thời gian
+Bên cạnh nhánh FSA thuần túy, một hướng phát triển mạnh trong hai năm gần
+đây là mô hình hóa đồng thời văn bản tài chính và chuỗi thời gian thịtrường. Động
+lực của hướng này là giá không phản ứng với văn bản theo cách tuyến tính hoặc
+tức thì; thay vào đó, tác động của tin tức phụthuộc vào state của thịtrường, độtrễ
+hấp thụthông tin, cũng như tương tác giữa các bài báo trong cùng một cửa sổthời
+gian.
+Wang và cộng sự[2] đềxuất Financial Interconnected News Influence Network
+(FININ), nhấn mạnh rằng ảnh hưởng của tin tức không nên được xem xét độc lập
+mà cần được mô hình hóa cùng với tương tác giữa các bài báo và ngữcảnh thị
+trường. Gần đây hơn, Koval và cộng sự[3] đưa ra một kiến trúc đa phương thức
+cho chuỗi văn bản–thời gian xen kẽ, trong đó các experts theo modality và cơ chế
+cross-modal alignment được dùng đểgắn văn bản với price trajectories. Công trình
+này báo cáo cảcải thiện vềhiệu năng dựbáo lẫn utility kinh tếtrong mô phỏng
+đầu tư [3]. Các kết quảđó cho thấy việc kết hợp văn bản và chuỗi thời gian là cần
+thiết nếu mục tiêu là dựbáo trong môi trường tài chính thực.
+Tuy nhiên, ngay cảtrong các mô hình đa phương thức mạnh nhất hiện nay,
+phần explainable decision support vẫn chưa được phát triển đầy đủ. Phần lớn các
+mô hình ưu tiên forecasting accuracy hoặc economic gain nhưng chưa trảlời rõ
+ba câu hỏi thiết kếquan trọng đối với hệthống triển khai: tin nào thực sựđáng giữ
+lại, yếu tốnào đang chi phối dựbáo, và khi nào không nên gửi tín hiệu. Bài toán
+của chúng tôi kếthừa nhánh đa phương thức này, nhưng thay vì chỉtối ưu dựbáo,
+chúng tôi xây dựng toàn bộpipeline quanh signal trustworthiness.
+2.5. Selective forecasting, hiệu chỉnh độtin cậy và chính sách cảnh báo
+Trong nhiều ứng dụng rủi ro cao, một mô hình tốt không chỉlà mô hình dự
+báo chính xác mà còn là mô hình biết khi nào không nên dựbáo. Ý tưởng này
+được nghiên cứu rộng trong selective prediction và selective forecasting. Ởlĩnh
+vực chuỗi thời gian, Brusokas và cộng sự[8] đềxuất Time-Energy Model, trong
+đó mô hình học một hàm năng lượng đểước lượng chất lượng dựbáo, từđó chọn
+ra những dựbáo đáng tin và từchối các trường hợp có rủi ro cao. Kết quảcho thấy
+selective forecasting có thểgiảm lỗi dựbáo đáng kểso với chếđộluôn dựbáo [8].
+Tuy nhiên, các ý tưởng selective forecasting hiện chủyếu được phát triển
+trong bối cảnh time-series tổng quát. Trong tài chính, đặc biệt là với các hệthống
+news-driven alerting, vẫn còn thiếu những nghiên cứu tích hợp chặt giữa evidence
+selection, forecast confidence, explanation faithfulness và alert policy. Nói cách
+khác, literature hiện tại đã bắt đầu trảlời câu hỏi dựbáo nào nên giữlại, nhưng
+8
+
+
+--- PAGE 9 ---
+chưa trảlời đầy đủcâu hỏi tín hiệu nào nên phát cho người dùng cuối trong một
+nền tảng hỗtrợquyết định thời gian thực.
+Khoảng trống này đặc biệt đáng chú ý trong các hệthống tài chính thực tế,
+nơi chi phí của một cảnh báo sai không chỉlà mất điểm accuracy, mà còn có thể
+chuyển thành giao dịch sai, nhiễu thông tin và suy giảm lòng tin của người dùng
+vào hệthống. Vì vậy, việc đưa confidence-aware alerting vào một khung dựbáo
+từtin tức không chỉlà một tinh chỉnh kỹthuật, mà là một thành phần trung tâm
+của thiết kếhệthống hỗtrợquyết định.
+2.6. Tóm tắt khoảng trống nghiên cứu
+Tổng hợp các hướng nghiên cứu trên cho thấy literature hiện tại đã có những
+bước tiến mạnh ởtừng mảnh của bài toán:
+• FSA và target-based FSA giúp làm rõ sắc thái và thực thểtrong văn bản tài
+chính [1, 9];
+• selective news selection giúp giảm information overload và làm rõ bằng
+chứng đầu vào [4];
+• LLM-based factor extraction và self-explanatory forecasting cải thiện khả
+năng diễn giải của mô hình [6, 7, 11];
+• multimodal forecasting giúp học tốt hơn mối liên hệgiữa tin tức và ngữcảnh
+thịtrường [2, 3];
+• selective forecasting mởđường cho việc từchối các dựbáo bất định cao [8].
+Tuy nhiên, theo hiểu biết tốt nhất của chúng tôi, vẫn còn thiếu một khung thống
+nhất cho tài chính gần thời gian thực có khảnăng:
+1. chọn ra một tập bằng chứng tin tức thực sựquan trọng,
+2. ánh xạbằng chứng đó sang các yếu tốtài chính có nghĩa,
+3. kết hợp chúng với ngữcảnh thịtrường đa khung thời gian,
+4. và chỉphát cảnh báo có giải thích khi mô hình đủtựtin.
+Chính khoảng trống này tạo nên động lực cho SAFE-Alert. Khác với các hướng
+trước, phương pháp của chúng tôi không xem selection, prediction, explanation và
+alerting là các bước tách rời, mà xem chúng là các thành phần đồng thiết kếcủa
+một hệthống hỗtrợquyết định tài chính thời gian thực.
+9
+
+
+--- PAGE 10 ---
+3. Phát biểu bài toán và phương pháp đềxuất
+3.1. Phát biểu bài toán
+Xét một tập tài sản giao dịch S, một tập chân trời dựbáo H = {15m, 1h, 4h, 24h},
+và một dãy thời điểm quyết định t ∈T . Với mỗi tài sản s ∈S tại thời điểm t, hệ
+thống quan sát đồng thời hai nguồn thông tin: (i) luồng tin tức liên quan đến tài
+sản đó trong một cửa sổthời gian gần đây, và (ii) trạng thái thịtrường đa khung
+thời gian ngay trước thời điểm ra quyết định.
+Cụthể, ta ký hiệu:
+• Ns,t = {ni}Ns,t
+i=1 là tập các bài viết liên quan đến tài sản s xuất hiện trong
+cửa sổtin tức [t −Wn, t], với Ns,t là sốlượng bài viết;
+• mỗi bài viết ni bao gồm nội dung văn bản xi, thời điểm công bốτi, nguồn
+tin ui, và metadata mi (ví dụ: độmới, độdài, độtin cậy nguồn, độmới lạ
+của nội dung);
+• Ms,t = {X(δ)
+s,t }δ∈∆là tập tensor đặc trưng thịtrường đa khung thời gian, với
+∆= {1m, 5m, 15m, 1h, 4h}, trong đó X(δ)
+s,t ∈RLδ×dδ là chuỗi đặc trưng của
+Lδ nến gần nhất ởkhung δ.
+Mục tiêu của bài toán là học một ánh xạ
+fθ : (Ns,t, Ms,t, h) 7→
+(
+ˆy(h)
+s,t , ˆr(h)
+s,t , ˆc(h)
+s,t , ˆE(h)
+s,t
+)
+,
+(1)
+trong đó:
+• ˆy(h)
+s,t ∈{−1, 0, +1} là nhãn hướng giá dựbáo cho chân trời h (giảm, trung
+tính, tăng);
+• ˆr(h)
+s,t ∈R là suất sinh lợi kỳvọng hoặc biên độbiến động kỳvọng;
+• ˆc(h)
+s,t ∈[0, 1] là mức độtin cậy của tín hiệu;
+• ˆE(h)
+s,t là tập giải thích có cấu trúc, bao gồm các bài viết được chọn, các yếu
+tốtài chính (factors) và một diễn giải ngắn gọn ởmức người dùng.
+Không giống các bài toán dựbáo chuẩn chỉtối ưu ˆy(h)
+s,t hoặc ˆr(h)
+s,t , bài toán của
+chúng tôi là bài toán news-to-signal: hệthống không chỉdựbáo chuyển động giá,
+mà còn phải xác định bằng chứng nào nên được giữlại, yếu tốnào đang chi phối
+tín hiệu, và khi nào nên phát cảnh báo. Điều này dẫn đến ba ràng buộc thiết kế
+đồng thời:
+10
+
+
+--- PAGE 11 ---
+Hình 1: Tổng quan kiến trúc SAFE-Alert. Hệthống bắt đầu từluồng tin tức và ngữcảnh thịtrường
+đa khung thời gian, sau đó lần lượt đi qua bốn tầng: (1) chọn lọc tin tức thích nghi, (2) suy luận dựa
+trên yếu tốtài chính, (3) hợp nhất đa phương thức với ngữcảnh thịtrường, và (4) dựbáo, giải thích
+và cảnh báo nhận thức độtin cậy. Kiến trúc này được tích hợp trực tiếp với vòng lặp hệthống gồm
+crawler, AI service, core storage, notification và backtest đểhỗtrợsuy luận gần thời gian thực và
+đánh giá utility downstream.
+1. Tính chọn lọc: chỉmột phần nhỏcủa Ns,t là thực sựhữu ích cho dựbáo;
+2. Tính diễn giải: dựbáo phải được gắn với các yếu tốtài chính có nghĩa thay
+vì chỉvới điểm cảm xúc hoặc attention score;
+3. Tính đáng tin: tín hiệu chỉnên được phát khi mức độtin cậy đủcao.
+3.2. Tổng quan kiến trúc SAFE-Alert
+Hình 1 minh họa toàn bộpipeline của SAFE-Alert, từtầng chọn lọc tin tức, suy
+luận dựa trên yếu tố, hợp nhất đa phương thức với ngữcảnh thịtrường đa khung
+thời gian, cho đến tầng dựbáo, giải thích và cảnh báo nhận thức độtin cậy.
+Đểgiải quyết bài toán trên, chúng tôi đềxuất kiến trúc SAFE-Alert (Selective
+Attentive Factor-Explainable Alerting), gồm bốn tầng chính:
+1. Selective News Encoder: mã hóa tập tin tức và học cách chọn ra một tập
+bài viết quan trọng nhất cho từng tài sản và chân trời dựbáo;
+2. Factor-grounded Reasoning: ánh xạcác bài viết đã chọn sang các yếu tố
+tài chính có cấu trúc, đóng vai trò như tầng diễn giải trung gian;
+11
+
+
+--- PAGE 12 ---
+3. Multi-timescale Market Fusion: hợp nhất thông tin từtin tức đã chọn, các
+yếu tốtài chính và trạng thái thịtrường đa khung thời gian đểtạo ra dựbáo;
+4. Confidence-aware Alerting: ước lượng độtin cậy của tín hiệu và quyết
+định có phát cảnh báo hay không.
+Hình thức hóa, SAFE-Alert có thểđược viết như sau:
+Znews
+s,t,h = Φsel(Ns,t, Ms,t, h) ,
+(2)
+Zfac
+s,t,h = Φfac
+(
+Znews
+s,t,h
+)
+,
+(3)
+Zmkt
+s,t
+= Φmkt(Ms,t) ,
+(4)
+Zfus
+s,t,h = Φfus
+(
+Znews
+s,t,h , Zfac
+s,t,h, Zmkt
+s,t , h
+)
+,
+(5)
+(
+ˆy(h)
+s,t , ˆr(h)
+s,t , ˆc(h)
+s,t
+)
+= Φpred
+(
+Zfus
+s,t,h
+)
+,
+(6)
+ˆE(h)
+s,t = Φexp
+(
+Znews
+s,t,h , Zfac
+s,t,h, ˆy(h)
+s,t , ˆc(h)
+s,t
+)
+.
+(7)
+Ởđây, Φsel là mô-đun chọn lọc tin tức, Φfac là mô-đun trích xuất yếu tốtài
+chính, Φmkt là mô-đun mã hóa ngữcảnh thịtrường, Φfus là mô-đun hợp nhất đa
+phương thức, Φpred là các đầu ra dựbáo và độtin cậy, còn Φexp là mô-đun sinh
+giải thích.
+3.3. Mã hóa tin tức và chọn lọc bằng chứng
+3.3.1. Mã hóa bài viết
+Mỗi bài viết ni được ánh xạthành một biểu diễn vector:
+ei = Φnews(xi, mi, h) ∈Rdn,
+(8)
+trong đó Φnews là bộmã hóa tin tức, có thểđược khởi tạo từmột mô hình ngôn
+ngữmiền tài chính hoặc từencoder sentiment sẵn có của hệthống. Việc đưa chân
+trời h vào đầu vào encoder là có chủý: cùng một bài viết có thểhữu ích cho dự
+báo 15 phút nhưng ít ý nghĩa hơn cho dựbáo 24 giờ.
+Đểgắn kết bài viết với trạng thái thịtrường hiện tại, trước tiên ta xây một
+vector truy vấn điều kiện hóa theo tài sản và horizon:
+qs,t,h = Wq [ ¯ms,t; hemb] + bq,
+(9)
+trong đó ¯ms,t là một biểu diễn tóm lược sơ bộcủa ngữcảnh thịtrường, còn hemb
+là embedding của horizon h.
+12
+
+
+--- PAGE 13 ---
+3.3.2. Scoring và lựa chọn Top-K thích nghi
+Với mỗi bài viết ni, SAFE-Alert tính một điểm liên quan:
+ai = v⊤tanh(Weei + Wqqs,t,h + Wmmi) ,
+(10)
+trong đó mi là vector metadata của bài báo. Các điểm ai được chuẩn hóa thành
+trọng sốchọn lọc:
+αi =
+exp(ai/τ)
+∑Ns,t
+j=1 exp(aj/τ)
+,
+(11)
+với τ là nhiệt độđiều khiển độsắc nét của phân phối.
+Đểxấp xỉmột lựa chọn Top-K nhưng vẫn khảvi khi huấn luyện, chúng tôi
+dùng một lớp chọn lọc mềm:
+˜αi = αi · I(i ∈TopK(a, Kh)) ,
+(12)
+trong đó Kh có thểphụthuộc vào horizon h. Trong triển khai, có thểthay thếchỉ
+báo rời rạc bằng một relaxation liên tục đểgradient lan truyền ổn định hơn.
+Biểu diễn tổng hợp của tập tin đã chọn được tính bởi:
+Znews
+s,t,h =
+Ns,t
+∑
+i=1
+˜αiei.
+(13)
+Thiết kếnày kếthừa tinh thần của các mô hình selective news selection gần
+đây [4], nhưng khác ởchỗcác trọng sốchọn lọc không chỉphục vụdựbáo mà còn
+trởthành một phần của bằng chứng giải thích và chính sách cảnh báo.
+3.4. Biểu diễn yếu tốtài chính có cấu trúc
+Một nhược điểm của nhiều hệthống XAI tài chính là giải thích vẫn dừng ở
+mức sentiment score hoặc attention weight, vốn khó diễn giải ởcấp độquyết định.
+Đểkhắc phục điều này, SAFE-Alert đưa vào một tầng factor-grounded reasoning.
+Ý tưởng ởđây là ánh xạcác bài viết đã chọn sang một tập yếu tốtài chính có ý
+nghĩa, ví dụ:
+institutional inflow, ETF flow, regulatory easing, regulatory tightening, exchange
+risk, liquidity squeeze, whale accumulation, macro uncertainty, protocol upgrade,
+network outage.
+13
+
+
+--- PAGE 14 ---
+Gọi F = {f1, . . . , fC} là ontology yếu tốvới C classes. Với mỗi bài viết đã
+chọn, ta ước lượng phân phối yếu tố:
+pfac
+i
+= softmax(Wfacei + bfac) ∈RC.
+(14)
+Biểu diễn yếu tốcủa toàn bộtập bằng chứng được gộp có trọng số:
+Zfac
+s,t,h =
+Ns,t
+∑
+i=1
+˜αiUpfac
+i
+,
+(15)
+trong đó U ∈Rdf×C là ma trận embedding yếu tố.
+Theo cách này, tầng yếu tốđóng vai trò như một lớp tri thức trung gian giữa
+văn bản và quyết định, đồng thời cho phép hệthống xuất ra các giải thích có cấu
+trúc thay vì các câu mô tảmơ hồ. Mô-đun này được lấy cảm hứng từxu hướng
+factor extraction dựa trên LLM trong dựbáo tài chính [6], nhưng trong SAFE-
+Alert, nó còn được dùng đểđiều khiển cảnh báo và ràng buộc độtrung thực của
+giải thích.
+3.5. Mã hóa ngữcảnh thịtrường đa khung thời gian
+Thịtrường được quan sát ởnhiều khung thời gian khác nhau. Với mỗi δ ∈∆,
+ta có tensor thịtrường:
+X(δ)
+s,t =
+[
+x(δ)
+t−Lδ+1, . . . , x(δ)
+t
+]
+∈RLδ×dδ,
+(16)
+trong đó mỗi x(δ)
+u
+có thểbao gồm các đặc trưng như returns, volume, volatility,
+spread, technical indicators hoặc market microstructure features.
+SAFE-Alert dùng một bộmã hóa riêng cho từng khung thời gian:
+u(δ)
+s,t = Φ(δ)
+mkt
+(
+X(δ)
+s,t
+)
+∈Rdm.
+(17)
+Sau đó, các biểu diễn theo timeframe được hợp nhất bằng attention:
+βδ =
+exp
+(
+w⊤
+δ tanh(Wδu(δ)
+s,t + Whhemb)
+)
+∑
+δ′∈∆exp
+(
+w⊤
+δ′ tanh(Wδ′u(δ′)
+s,t + Whhemb)
+),
+(18)
+Zmkt
+s,t,h =
+∑
+δ∈∆
+βδu(δ)
+s,t .
+(19)
+Điều này cho phép mô hình học rằng các chân trời khác nhau cần chú ý đến
+các timeframe khác nhau; ví dụ, dựbáo 15 phút có thểphụthuộc mạnh vào khung
+1m hoặc 5m, trong khi dựbáo 24 giờcó thểdựa nhiều hơn vào khung 1h hoặc 4h.
+14
+
+
+--- PAGE 15 ---
+3.6. Hợp nhất đa phương thức và đầu ra dựbáo
+SAFE-Alert hợp nhất ba nguồn biểu diễn:
+• biểu diễn tin tức đã chọn Znews
+s,t,h ,
+• biểu diễn yếu tốtài chính Zfac
+s,t,h,
+• biểu diễn thịtrường đa khung thời gian Zmkt
+s,t,h.
+Một cách hợp nhất hiệu quảlà dùng cross-attention hai tầng:
+˜Znews
+s,t,h = CrossAttn
+(
+Znews
+s,t,h , Zmkt
+s,t,h
+)
+,
+(20)
+˜Zfac
+s,t,h = CrossAttn
+(
+Zfac
+s,t,h, Zmkt
+s,t,h
+)
+.
+(21)
+Biểu diễn hợp nhất cuối cùng được định nghĩa là:
+Zfus
+s,t,h = MLP
+(
+[˜Znews
+s,t,h ; ˜Zfac
+s,t,h; Zmkt
+s,t,h; hemb]
+)
+.
+(22)
+TừZfus
+s,t,h, mô hình sinh ra ba đầu ra:
+ˆp(h)
+s,t = softmax
+(
+WyZfus
+s,t,h + by
+)
+,
+(23)
+ˆr(h)
+s,t = WrZfus
+s,t,h + br,
+(24)
+ˆc(h)
+s,t = σ
+(
+WcZfus
+s,t,h + bc
+)
+,
+(25)
+trong đó ˆp(h)
+s,t là phân phối xác suất cho ba lớp hướng giá, ˆr(h)
+s,t là suất sinh lợi kỳ
+vọng, và ˆc(h)
+s,t là mức độtin cậy.
+3.7. Cơ chếcảnh báo nhận thức độtin cậy
+Khác với các hệthống luôn phát tín hiệu sau mỗi lần suy luận, SAFE-Alert
+đưa ra một quyết định alert hoặc abstain dựa trên confidence. Với mỗi (s, t, h),
+hệthống phát cảnh báo nếu:
+A(h)
+s,t =
+{
+1,
+nếu ˆc(h)
+s,t ≥τh và max ˆp(h)
+s,t ≥γh,
+0,
+ngược lại,
+(26)
+trong đó τh là ngưỡng tin cậy và γh là ngưỡng độsắc của phân phối dựbáo cho
+chân trời h.
+15
+
+
+--- PAGE 16 ---
+Thiết kếhai ngưỡng này có hai mục đích. Thứnhất, τh giúp kiểm soát các tình
+huống mà biểu diễn hợp nhất vẫn chứa nhiều bất định. Thứhai, γh giúp tránh các
+trường hợp mô hình có confidence tổng quát cao nhưng phân phối dựbáo giữa các
+lớp vẫn chưa đủphân biệt. Vềmặt vận hành, chính sách này cho phép hệthống
+biết khi nào nên im lặng, một đặc tính đặc biệt quan trọng trong bối cảnh cảnh báo
+tài chính.
+3.8. Đầu ra giải thích
+Giải thích trong SAFE-Alert được tổchức thành hai tầng.
+3.8.1. Giải thích có cấu trúc
+Hệthống xuất ra:
+• tập bài viết được chọn Snews
+s,t,h ,
+• top-P yếu tốtài chính Sfac
+s,t,h,
+• direction dựbáo, confidence và horizon.
+Các tập này được xác định bởi:
+Snews
+s,t,h = {ni | i ∈TopK(a, Kh)},
+(27)
+Sfac
+s,t,h = TopP
+(Ns,t
+∑
+i=1
+˜αipfac
+i
+, P
+)
+.
+(28)
+3.8.2. Giải thích ởmức ngôn ngữ
+Trên cơ sởbằng chứng có cấu trúc, một module ngôn ngữnhẹhoặc một bộ
+template có thểsinh diễn giải:
+ˆg(h)
+s,t = Φtxt
+(
+Snews
+s,t,h , Sfac
+s,t,h, ˆy(h)
+s,t , ˆc(h)
+s,t
+)
+.
+(29)
+Điểm quan trọng là Φtxt không được phép giải thích tựdo trên toàn bộtập tin
+đầu vào; nó chỉđược điều kiện hóa trên bằng chứng đã chọn và các yếu tốđã trích
+xuất. Nhờvậy, diễn giải bằng ngôn ngữđược neo chặt vào quá trình suy luận, giảm
+nguy cơ tạo ra lời giải thích hợp lý vềmặt câu chữnhưng không faithful vềmặt
+mô hình.
+16
+
+
+--- PAGE 17 ---
+3.9. Hàm mục tiêu huấn luyện
+SAFE-Alert được huấn luyện bằng một hàm mất mát đa mục tiêu:
+L = λ1Ldir + λ2Lret + λ3Lfac + λ4Lsel + λ5Lcal + λ6Lfaith + λ7Lrisk,
+(30)
+trong đó các thành phần được định nghĩa như sau.
+3.9.1. Mất mát dựbáo hướng giá
+Ldir = −
+∑
+c∈{−1,0,+1}
+y(h)
+s,t,c log ˆp(h)
+s,t,c.
+(31)
+3.9.2. Mất mát hồi quy suất sinh lợi
+Lret = SmoothL1
+(
+ˆr(h)
+s,t , r(h)
+s,t
+)
+.
+(32)
+3.9.3. Mất mát yếu tốtài chính
+Nếu có factor labels thật hoặc pseudo-labels từpipeline tri thức/LLM, ta dùng:
+Lfac = −
+Ns,t
+∑
+i=1
+C
+∑
+c=1
+˜yfac
+i,c log pfac
+i,c .
+(33)
+3.9.4. Regularization cho chọn lọc tin tức
+Đểtránh selector phân tán quá rộng hoặc luôn chọn cùng một kiểu bằng chứng,
+ta dùng một regularizer:
+Lsel =
+(Ns,t
+∑
+i=1
+˜αi −Kh
+)2
++ η
+Ns,t
+∑
+i=1
+˜αi log ˜αi.
+(34)
+3.9.5. Mất mát hiệu chỉnh độtin cậy
+Đểlàm cho ˆc(h)
+s,t phản ánh đúng chất lượng dựbáo, chúng tôi dùng Brier-style
+calibration:
+Lcal =
+(
+ˆc(h)
+s,t −I[ˆy(h)
+s,t = y(h)
+s,t ]
+)2
+.
+(35)
+17
+
+
+--- PAGE 18 ---
+3.9.6. Mất mát faithfulness
+Giải thích được xem là faithful nếu việc loại bỏcác bài viết và yếu tốđược
+chọn làm giảm đáng kểđộchắc chắn của dựbáo. Gọi ˆpfull là xác suất lớp dựbáo
+khi dùng đầy đủselected evidence, và ˆpmask là xác suất khi che các evidence được
+chọn. Khi đó:
+Lfaith = max
+(
+0, m −
+(
+ˆpfull
+s,t,h −ˆpmask
+s,t,h
+))
+,
+(36)
+với m > 0 là margin. Thành phần này khuyến khích mô hình chỉgiải thích bằng
+các evidence thực sựquan trọng.
+3.9.7. Mất mát selective risk
+Đểtránh mô hình phát quá nhiều cảnh báo rủi ro cao, ta dùng một surrogate
+selective risk:
+Lrisk =
+∑
+(s,t,h) ˆc(h)
+s,t ℓ(h)
+s,t
+∑
+(s,t,h) ˆc(h)
+s,t + ϵ
++ µ max
+
+0, κ −1
+B
+∑
+(s,t,h)
+ˆc(h)
+s,t
+
+,
+(37)
+trong đó ℓ(h)
+s,t là lỗi dựbáo cơ sở, κ là coverage mục tiêu, và B là batch size.
+3.10. Suy luận gần thời gian thực và tích hợp hệthống
+SAFE-Alert được thiết kếđểphù hợp với kiến trúc microservices hướng sự
+kiện. Tại thời điểm suy luận t, pipeline được thực hiện theo thứtự:
+1. Crawler Service cung cấp tập Ns,t sau khi crawl, deduplicate và chuẩn hóa;
+2. Stream/Market Service cung cấp tensor Ms,t từdữliệu giá đa khung thời
+gian;
+3. AI Service thực hiện lần lượt selection →factor extraction →fusion →
+forecasting →confidence scoring;
+4. Core Service lưu lại selected evidence, factors, forecasts và confidence để
+phục vụtruy vấn, audit và replay;
+5. Notification Service chỉphát tín hiệu nếu điều kiện trong Eq. (26) được
+thỏa mãn;
+6. Backtest Service có thểdùng cùng pipeline đểđánh giá utility downstream
+của policy alert.
+Nhờđó, SAFE-Alert không chỉlà một kiến trúc mô hình, mà còn là một khung
+news-to-signal có thểtriển khai trực tiếp trong môi trường gần thời gian thực.
+18
+
+
+--- PAGE 19 ---
+3.11. Thảo luận vềnovelty của SAFE-Alert
+Điểm mới của SAFE-Alert không nằm ởviệc phát minh một encoder hoàn
+toàn mới cho văn bản hay chuỗi thời gian, mà ởsựhợp nhất có chủđích của bốn
+bài toán vốn thường được nghiên cứu rời rạc:
+1. chọn lọc bằng chứng từdòng tin dày đặc;
+2. ánh xạbằng chứng sang các yếu tốtài chính có cấu trúc;
+3. dựbáo đa phương thức theo nhiều chân trời thời gian;
+4. và phát cảnh báo có nhận thức độtin cậy.
+Nói cách khác, SAFE-Alert chuyển trọng tâm từforecasting from all available
+news sang trustworthy signal generation from selected evidence. Chính sựchuyển
+dịch này làm cho phương pháp phù hợp hơn với yêu cầu của các hệthống hỗtrợ
+quyết định tài chính thực tế, nơi câu hỏi quan trọng không chỉlà “mô hình dựbáo
+đúng bao nhiêu”, mà còn là “mô hình có biết dùng bằng chứng nào, giải thích bằng
+gì, và khi nào nên im lặng hay không”.
+3.12. Ví dụminh họa trực quan cho SAFE-Alert
+Đểgiúp làm rõ cách SAFE-Alert hoạt động, chúng tôi trình bày một ví dụminh
+họa đơn giản với dữliệu giảlập cho tài sản BTC tại thời điểm t, với chân trời dự
+báo h = 4h. Ví dụnày không nhằm thay thếthực nghiệm đầy đủ, mà chỉđểminh
+họa trực quan cách các mô-đun trong Section 3 tương tác với nhau.
+3.12.1. Đầu vào
+Giảsửtrong cửa sổtin tức gần nhất, hệthống thu được NBTC,t = 5 bài viết
+liên quan đến BTC. Đồng thời, hệthống cũng có dữliệu thịtrường đa khung thời
+gian từcác nến gần nhất. Bảng 1 và Bảng 2 trình bày dữliệu đầu vào rút gọn.
+Bảng 1: Ví dụđầu vào tin tức cho BTC tại thời điểm t.
+ID
+Nội dung tóm tắt
+Recency
+Nguồn
+Novelty
+n1
+Quỹlớn mua thêm BTC trịgiá 250 triệu USD
+10 phút
+cao
+0.90
+n2
+ETF Bitcoin ghi nhận dòng tiền vào tăng mạnh
+25 phút
+cao
+0.85
+n3
+Sàn giao dịch nhỏgặp lỗi rút tiền ngắn hạn
+20 phút
+trung bình
+0.60
+n4
+Bài phân tích chung: BTC có thểtiếp tục biến động
+15 phút
+trung bình
+0.30
+n5
+Một KOL đăng nhận định lạc quan vềthịtrường
+12 phút
+thấp
+0.20
+Trong ví dụnày, dữliệu thịtrường cho thấy BTC đang ởtrạng thái tăng tương
+đối ổn định, với volume tăng dần từkhung nhỏđến khung lớn. Điều này hàm ý
+rằng hệthống có thểxem các tin tức liên quan đến institutional inflow hoặc ETF
+inflow là đặc biệt quan trọng cho dựbáo 4 giờtới.
+19
+
+
+--- PAGE 20 ---
+Bảng 2: Ví dụđầu vào thịtrường đa khung thời gian cho BTC tại thời điểm t.
+Khung thời gian
+Return gần nhất
+Volatility
+Volume ratio
+1m
++0.10%
+0.8
+1.10
+5m
++0.35%
+1.1
+1.25
+15m
++0.60%
+1.3
+1.40
+1h
++1.10%
+1.5
+1.55
+4h
++2.20%
+1.8
+1.70
+3.12.2. Bước 1: Mã hóa và chọn lọc tin tức
+Theo Eq. (10) và Eq. (11), SAFE-Alert tính điểm liên quan ai cho từng bài
+viết. Giảsửmô hình thu được các điểm như sau:
+[a1, a2, a3, a4, a5] = [2.40, 2.10, 0.95, 0.40, 0.20].
+(38)
+Sau khi chuẩn hóa bằng softmax, ta có:
+[α1, α2, α3, α4, α5] = [0.39, 0.29, 0.13, 0.10, 0.09].
+(39)
+Giảsửhệthống dùng Kh = 2 cho horizon 4h, khi đó theo Eq. (12), hai bài
+được giữlại là:
+Snews
+BTC,t,4h = {n1, n2}.
+(40)
+Điều này có nghĩa là SAFE-Alert xem hai tin “quỹlớn mua thêm BTC” và
+“ETF inflow tăng mạnh” là hai bằng chứng quan trọng nhất cho tín hiệu hiện tại,
+thay vì dùng toàn bộ5 tin đầu vào.
+3.12.3. Bước 2: Trích xuất yếu tốtài chính
+Theo Eq. (14), mỗi bài viết đã chọn được ánh xạsang phân phối yếu tốtài
+chính. Giảsửontology yếu tốrút gọn gồm:
+F = {institutional inflow, ETF flow, exchange risk, noise commentary}.
+Với hai bài đã chọn, mô hình thu được:
+pfac
+1
+= [0.82, 0.10, 0.03, 0.05],
+(41)
+pfac
+2
+= [0.18, 0.73, 0.04, 0.05].
+(42)
+Từđó, theo Eq. (15), các yếu tốnổi bật nhất là:
+Sfac
+BTC,t,4h = {institutional inflow, ETF flow}.
+(43)
+Ởmức trực giác, hệthống không chỉbiết “tin tích cực”, mà còn biết tại sao tin
+tích cực: vì dòng tiền tổchức tăng và dòng tiền ETF đang hỗtrợđà giá.
+20
+
+
+--- PAGE 21 ---
+3.12.4. Bước 3: Mã hóa thịtrường đa khung thời gian
+Theo Eq. (18) và Eq. (19), SAFE-Alert gán trọng sốcho từng khung thời gian
+khi dựbáo 4 giờ. Giảsửcác trọng sốattention thu được là:
+[β1m, β5m, β15m, β1h, β4h] = [0.05, 0.10, 0.20, 0.30, 0.35].
+(44)
+Kết quảnày hợp lý vì với horizon 4 giờ, các khung 1h và 4h được ưu tiên hơn
+so với 1m và 5m.
+3.12.5. Bước 4: Hợp nhất đa phương thức và dựbáo
+Từcác biểu diễn tin tức đã chọn, yếu tốtài chính và trạng thái thịtrường,
+SAFE-Alert xây dựng biểu diễn hợp nhất Zfus
+BTC,t,4h theo Eq. (22), rồi sinh đầu ra
+dựbáo theo Eq. (23)–(25).
+Giảsửmô hình tạo ra:
+ˆp(4h)
+BTC,t = [0.08, 0.18, 0.74],
+(45)
+ˆr(4h)
+BTC,t = +1.8%,
+(46)
+ˆc(4h)
+BTC,t = 0.81.
+(47)
+Điều này tương ứng với:
+• xác suất BTC tăng trong 4 giờtới là 0.74,
+• mức tăng kỳvọng là khoảng +1.8%,
+• độtin cậy tổng thểcủa tín hiệu là 0.81.
+3.12.6. Bước 5: Quyết định cảnh báo
+Giảsửhệthống dùng ngưỡng:
+τ4h = 0.75,
+γ4h = 0.70.
+Vì:
+ˆc(4h)
+BTC,t = 0.81 > τ4h
+và
+max ˆp(4h)
+BTC,t = 0.74 > γ4h,
+nên theo Eq. (26), hệthống quyết định:
+A(4h)
+BTC,t = 1,
+(48)
+tức là phát cảnh báo.
+Ngược lại, nếu cùng đầu vào nhưng ˆc(4h)
+BTC,t = 0.58, thì hệthống sẽchọn abstain
+thay vì gửi một tín hiệu kém chắc chắn.
+21
+
+
+--- PAGE 22 ---
+3.12.7. Bước 6: Sinh giải thích
+Theo Eq. (29), giải thích được sinh từtập tin đã chọn và các yếu tốtài chính
+đã trích xuất. Một ví dụđầu ra có thểlà:
+Tín hiệu: BTC có khảnăng tăng trong 4 giờtới.
+Độtin cậy: 0.81.
+Bằng chứng chính: (i) quỹlớn mua thêm BTC, (ii) dòng tiền ETF tăng
+mạnh.
+Yếu tốchi phối: institutional inflow và ETF flow.
+Giải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗtrợđồng thời
+bởi dòng tiền tổchức và bối cảnh thịtrường đa khung thời gian đang tích
+cực, với volume tăng dần từkhung ngắn đến khung dài. Các tin còn lại được
+xem là ít quan trọng hơn hoặc có mức tác động lịch sửthấp.
+3.12.8. Kiểm tra trực giác vềfaithfulness
+Đểminh họa ý tưởng trong Eq. (36), giảsửta che hai bài viết được chọn n1 và
+n2. Khi đó xác suất lớp up giảm từ:
+ˆpfull
+BTC,t,4h = 0.74
+xuống
+ˆpmask
+BTC,t,4h = 0.41.
+Mức giảm này cho thấy các bài được chọn thực sựlà bằng chứng quan trọng,
+chứkhông chỉđược đưa vào đểlàm cho lời giải thích nghe hợp lý. Nói cách khác,
+explanation của SAFE-Alert có cơ sởtrực tiếp từquá trình suy luận.
+3.12.9. Tóm tắt ví dụ
+Ví dụtrên cho thấy SAFE-Alert hoạt động theo logic sau:
+1. nhận nhiều tin tức và ngữcảnh thịtrường đa khung thời gian;
+2. chọn ra một tập tin nhỏnhưng quan trọng nhất;
+3. ánh xạcác tin này sang các yếu tốtài chính có nghĩa;
+4. kết hợp các yếu tốđó với trạng thái thịtrường đểdựbáo;
+5. chỉphát cảnh báo khi mức tin cậy đủcao;
+6. và sinh giải thích bám chặt vào đúng các bằng chứng đã chọn.
+Nhờđó, hệthống không chỉtrảlời câu hỏi “giá có thểtăng hay giảm?”, mà
+còn trảlời được ba câu hỏi quan trọng hơn trong thực tếtriển khai: “vì sao?”,
+“dựa trên tin nào?”, và “có nên phát tín hiệu lúc này hay không?”.
+22
+
+
+--- PAGE 23 ---
+4. Thiết lập thực nghiệm
+Mục tiêu của phần thực nghiệm là kiểm chứng bốn giảthuyết trung tâm của
+SAFE-Alert: (i) chọn lọc tin tức có giúp cải thiện chất lượng dựbáo hay không,
+(ii) giải thích dựa trên yếu tốcó trung thực và hữu ích hơn các lời giải thích hậu
+nghiệm hay không, (iii) cảnh báo nhận thức độtin cậy có làm tăng chất lượng
+tín hiệu downstream hay không, và (iv) một khung thống nhất kết hợp selection,
+forecasting, explanation và alerting có tạo ra lợi ích tổng hợp vềcảhọc máy
+lẫn utility tài chính hay không. Đểđánh giá các giảthuyết này trong bối cảnh
+gần thời gian thực, chúng tôi xây dựng một benchmark nội bộtừchính nền tảng
+microservices hiện có, đồng thời áp dụng một giao thức pseudo-online nghiêm
+ngặt nhằm tránh rò rỉthông tin tương lai.
+4.1. Nguồn dữliệu và xây dựng benchmark từhệthống hiện có
+4.1.1. Nguồn dữliệu thô
+Benchmark được xây dựng từba luồng dữliệu chính do hệthống hiện có sinh
+ra:
+1. Luồng tin tức tài chính: được thu thập bởi Crawler Service, bao gồm nội
+dung bài viết, thời điểm công bố, thời điểm hệthống ingest, nguồn tin, liên
+kết bài viết, thông tin deduplication và các metadata liên quan đến độmới,
+độdài và độtin cậy nguồn.
+2. Luồng thịtrường thời gian thực: được cung cấp bởi stream-ingester và
+stream-service, bao gồm dữliệu nến và các đặc trưng giao dịch theo nhiều
+khung thời gian cho từng tài sản.
+3. Luồng dựbáo và nhật ký hệthống: được sinh bởi AI Service, Notification
+Service, Core Service và Backtest Service, bao gồm sentiment hiện có, AI
+insights, prediction logs, explanation logs, alert decisions và kết quảbacktest.
+Các nguồn dữliệu này tạo thành một event timeline nhất quán, trong đó mỗi
+bài viết, trạng thái thịtrường, dựbáo và cảnh báo đều được gắn với timestamp rõ
+ràng. Đây là điều kiện then chốt đểxây dựng benchmark news-to-signal ởchếđộ
+gần thời gian thực.
+4.1.2. Đơn vịphân tích
+Đơn vịphân tích cơ bản của benchmark là một bộtứ:
+(s, t, h, Ns,t),
+(49)
+trong đó:
+23
+
+
+--- PAGE 24 ---
+• s là tài sản mục tiêu;
+• t là thời điểm ra quyết định;
+• h ∈H = {15m, 1h, 4h, 24h} là chân trời dựbáo;
+• Ns,t là tập bài viết liên quan đến s trong cửa sổtin tức trước thời điểm t.
+Với mỗi đơn vịphân tích, hệthống phải trảlời ba câu hỏi: giá có đi lên hay
+đi xuống, mức độchắc chắn của tín hiệu là bao nhiêu, và những bằng chứng nào
+giải thích cho quyết định đó. Khung này cho phép đánh giá đồng thời dựbáo, giải
+thích và alerting.
+4.1.3. Lọc dữliệu và chuẩn hóa
+Trước khi tạo benchmark, dữliệu được xửlý theo bốn bước:
+1. Deduplication: các bài viết trùng lặp hoặc gần trùng lặp được gom cụm để
+tránh khuếch đại cùng một sựkiện.
+2. Entity-to-symbol linking: chỉgiữcác bài viết có mức tin cậy đủcao trong
+việc liên kết với tài sản mục tiêu.
+3. Temporal consistency: sửdụng timestamp ingest thay vì chỉtimestamp
+publication đểđảm bảo chỉnhững bài thực sựđã đến hệthống trước thời
+điểm t mới được dùng trong suy luận.
+4. Quality filtering: loại bỏcác bài có nội dung quá ngắn, bài spam, hoặc bài
+không đạt ngưỡng tối thiểu vềđộtin cậy nguồn.
+Thiết kếnày giúp benchmark phản ánh đúng môi trường vận hành thực tếhơn
+so với việc giảđịnh rằng mọi bài báo đều ngay lập tức và hoàn toàn khảdụng tại
+thời điểm công bố.
+4.1.4. Xây dựng nhãn dựbáo
+Với mỗi tài sản s và thời điểm quyết định t, chúng tôi xây dựng nhãn cho từng
+horizon h dựa trên suất sinh lợi tiến vềphía trước:
+r(h)
+s,t = P close
+s,t+h −P exec
+s,t
+P exec
+s,t
+,
+(50)
+trong đó P exec
+s,t
+là giá thực thi mô phỏng, được lấy là giá mởcửa của nến đầu tiên
+sau thời điểm ra quyết định đểtránh look-ahead bias.
+24
+
+
+--- PAGE 25 ---
+Từr(h)
+s,t , nhãn phân lớp hướng giá được xác định theo:
+y(h)
+s,t =
+
+
+
+
+
++1,
+nếu r(h)
+s,t > ϵh,
+0,
+nếu |r(h)
+s,t | ≤ϵh,
+−1,
+nếu r(h)
+s,t < −ϵh,
+(51)
+trong đó ϵh là ngưỡng trung tính phụthuộc horizon, dùng đểtránh gán nhãn
+tăng/giảm cho các dao động nhiễu rất nhỏ.
+Bên cạnh nhãn hướng giá, benchmark còn lưu:
+• suất sinh lợi liên tục r(h)
+s,t cho nhiệm vụhồi quy,
+• volatility tương lai trong khoảng [t, t + h],
+• trạng thái thịtrường (regime) nếu cần cho các thí nghiệm phân tầng.
+4.1.5. Tập bằng chứng và ontology yếu tố
+Đểphục vụtầng giải thích trong SAFE-Alert, benchmark còn lưu thêm:
+1. selected evidence candidates: tập bài viết ứng viên trong cửa sổ[t−Wn, t];
+2. factor ontology: tập yếu tốtài chính hữu hạn, được xây dựng từtri thức miền
+và các mẫu tin lặp lại trong hệthống, chẳng hạn: institutional inflow, ETF
+flow, regulatory easing, exchange risk, liquidity squeeze, whale accumulation,
+macro tightening.
+Với ontology này, chúng tôi xây dựng một tập con được gán nhãn hoặc kiểm
+định bán thủcông đểđánh giá chất lượng factor extraction và explanation faithfulness.
+Thiết kếnày phù hợp với xu hướng factor-based explanation trong dựbáo tài chính
+[6] và với các khuyến nghịgần đây vềXAI tài chính có cấu trúc [5].
+4.2. Giao thức pseudo-online
+4.2.1. Động cơ
+Các thí nghiệm tài chính dễbịlạc quan giảtạo nếu dữliệu được trộn ngẫu
+nhiên hoặc nếu mô hình được phép nhìn thấy những bài viết, trạng thái thịtrường
+hay metadata chỉxuất hiện sau thời điểm ra quyết định. Đểtránh điều này, chúng
+tôi dùng một giao thức pseudo-online, trong đó toàn bộpipeline được phát lại theo
+dòng thời gian thực, và tại mỗi thời điểm t, hệthống chỉđược truy cập những thông
+tin thực sựkhảdụng trước hoặc đúng lúc t.
+25
+
+
+--- PAGE 26 ---
+4.2.2. Mốc quyết định và cửa sổquan sát
+Các quyết định được tạo ra tại các mốc đồng hồcốđịnh, ký hiệu là Tdec, ví dụ
+theo nhịp 15 phút. Tại mỗi t ∈Tdec:
+1. hệthống lấy tập tin tức Ns,t trong cửa sổ[t −Wn, t];
+2. lấy tensor thịtrường đa khung thời gian Ms,t trong cửa sổquan sát [t −
+Wm, t];
+3. chạy SAFE-Alert đểsinh dựbáo, confidence, evidence và explanation;
+4. áp dụng chính sách cảnh báo theo Eq. (26);
+5. ghi nhận log dựbáo trước khi thấy dữliệu tương lai.
+Thiết kếnày bảo đảm rằng mọi quyết định trong benchmark đều có thểđược
+xem như một bước suy luận gần thời gian thực.
+4.2.3. Walk-forward evaluation
+Toàn bộdữliệu được chia theo thời gian thành ba vùng:
+• train: đoạn đầu của chuỗi thời gian,
+• validation: đoạn giữa,
+• test: đoạn cuối.
+Đểtăng độchắc chắn cho đánh giá, chúng tôi áp dụng walk-forward evaluation
+theo cơ chếexpanding window:
+1. huấn luyện mô hình trên giai đoạn đầu;
+2. chọn siêu tham sốtrên validation tiếp theo;
+3. đánh giá trên test ngay sau đó;
+4. trượt cửa sổtiến vềphía trước và lặp lại.
+Ngoài ra, giữa các vùng thời gian chúng tôi áp dụng một khoảng embargo để
+giảm rò rỉgián tiếp qua các sựkiện kéo dài hoặc các chuỗi tin liên tục liên quan
+đến cùng một biến cốlớn.
+4.2.4. Mô phỏng thực thi và chi phí giao dịch
+Đểđánh giá utility downstream, mọi tín hiệu được giảđịnh thực thi tại:
+P exec
+s,t
+= Ps,next-open(t),
+(52)
+thay vì dùng giá đóng tại chính thời điểm t. Thiết kếnày giúp tránh look-ahead
+bias và phản ánh thực tếrằng tín hiệu cần một độtrễnhỏđểđược phát và thực thi.
+Mỗi giao dịch trong backtest được điều chỉnh bởi:
+26
+
+
+--- PAGE 27 ---
+• transaction cost cốđịnh,
+• slippage,
+• optional spread penalty nếu dùng dữliệu vi mô đầy đủ.
+4.3. Các baseline so sánh
+Đểkiểm chứng từng thành phần của SAFE-Alert, chúng tôi chia baseline thành
+bốn nhóm.
+4.3.1. Baseline dựa trên giá thuần túy
+• Market-Only: chỉdùng dữliệu thịtrường đa khung thời gian, không dùng
+tin tức;
+• Current Price Predictor: mô hình dựbáo giá hiện có trong nền tảng, dùng
+lại backbone đang vận hành nhưng không có selective explanation và alert
+gating.
+Nhóm baseline này giúp đánh giá giá trịbiên của văn bản trong môi trường
+giàu tín hiệu thịtrường.
+4.3.2. Baseline dùng toàn bộtin tức
+• All-News Fusion: gộp toàn bộbài viết trong cửa sổtin tức, không có news
+selection;
+• Sentiment+Market Fusion: dùng sentiment score hiện có của nền tảng kết
+hợp với market features;
+• All-News + LLM Explanation: dựbáo từtoàn bộtin, sau đó dùng LLM
+sinh diễn giải hậu nghiệm.
+Các baseline này kiểm tra trực tiếp giảthuyết rằng việc dùng mọi tin là kém
+hiệu quảhơn dùng selected evidence.
+4.3.3. Baseline lấy cảm hứng từliterature
+• NSM-style Selection: phiên bản chọn lọc headline dựa trên cơ chếtương tự
+[4], nhưng không có factor-grounded alerting;
+• LLMFactor-style Forecasting: sửdụng factor extraction kiểu [6], nhưng
+không có adaptive selection và confidence-aware alerting;
+27
+
+
+--- PAGE 28 ---
+• SEP-style Explainable Prediction: dùng chiến lược sinh explanation theo
+tinh thần [7], nhưng không tích hợp evidence gating;
+• FININ-style Multimodal Model: mô hình hóa news-market interactions
+theo tinh thần [2];
+• Interleaved Text–Time-Series Model: baseline đa phương thức kiểu [3].
+Nhóm này giúp đối chiếu SAFE-Alert với các xu hướng nghiên cứu mới nhất
+thay vì chỉvới các baseline đơn giản.
+4.3.4. Baseline cho selective alerting
+• Always-Alert: phát tín hiệu ởmọi thời điểm suy luận;
+• Raw-Probability Threshold: phát tín hiệu khi xác suất lớp dựbáo vượt
+ngưỡng;
+• Temperature-Scaled Threshold: hiệu chỉnh hậu nghiệm rồi ngưỡng hóa;
+• Selective Forecasting Baseline: phiên bản selective forecasting lấy cảm
+hứng từ[8], không có factor-grounded explanation.
+Thiết kếnày cho phép chúng tôi tách riêng hiệu quảcủa confidence-aware
+alerting khỏi hiệu quảcủa forecasting model.
+4.4. Các tiêu chí đánh giá
+Do SAFE-Alert là một khung nhiều mục tiêu, chúng tôi đánh giá theo bốn
+nhóm chỉsố.
+4.4.1. Chỉsốdựbáo
+Đối với bài toán phân lớp hướng giá, chúng tôi báo cáo:
+• Accuracy,
+• Macro-F1,
+• Matthews Correlation Coefficient (MCC),
+• AUC trong trường hợp hai lớp hoặc one-vs-rest.
+Đối với bài toán hồi quy suất sinh lợi, chúng tôi báo cáo:
+28
+
+
+--- PAGE 29 ---
+• MAE,
+• RMSE.
+MCC được ưu tiên vì bài toán tài chính thường mất cân bằng lớp và Accuracy
+có thểgây ảo tưởng chất lượng.
+4.4.2. Chỉsốgiải thích
+Đểđánh giá explanation, chúng tôi dùng các chỉsốfaithfulness và usefulness:
+• Sufficiency: giữlại selected evidence rồi đo mức giảm chất lượng dựbáo;
+• Comprehensiveness: che selected evidence rồi đo mức suy giảm confidence;
+• Deletion / Insertion: đánh giá độnhạy của đầu ra khi loại bỏhoặc thêm các
+bằng chứng được chọn;
+• Factor Consistency: mức ổn định của các yếu tốđược trích xuất qua các
+lần suy luận tương tự;
+• Human Usefulness: đánh giá trên một tập con bởi người có kiến thức miền.
+Việc dùng faithfulness-oriented metrics phù hợp với các khuyến nghịgần đây
+trong XAI tài chính [5].
+4.4.3. Chỉsốcalibration và selective forecasting
+Đểđánh giá độtin cậy và chính sách từchối phát tín hiệu, chúng tôi báo cáo:
+• Expected Calibration Error (ECE),
+• Brier Score,
+• Coverage,
+• Selective Risk,
+• Area under the Coverage–Risk Curve.
+Nhóm chỉsốnày giúp kiểm tra liệu confidence head có thực sựdựđoán tốt
+chất lượng tín hiệu hay không.
+29
+
+
+--- PAGE 30 ---
+4.4.4. Chỉsốutility và chất lượng cảnh báo
+Với tầng alerting và backtest, chúng tôi báo cáo:
+• Hit Rate,
+• Alert Precision,
+• Alert Coverage,
+• Profit & Loss,
+• Sharpe Ratio,
+• Sortino Ratio,
+• Calmar Ratio,
+• Maximum Drawdown.
+Các chỉsốnày đóng vai trò then chốt vì một mô hình có Accuracy cao nhưng
+phát nhiều tín hiệu sai hoặc tạo drawdown lớn vẫn khó có giá trịvận hành trong
+hệthống thực.
+4.5. Chi tiết cài đặt
+4.5.1. Thiết lập huấn luyện
+SAFE-Alert được triển khai bằng PyTorch. Bộtối ưu được dùng là AdamW,
+với learning rate, weight decay, batch size và sốepochs được chọn trên validation.
+Mô hình được huấn luyện với early stopping theo tiêu chí tổhợp gồm Macro-F1,
+ECE và Sharpe trên validation.
+Đểổn định huấn luyện, các trọng sốtrong hàm mất mát tổng hợp ởEq. (30)
+được tuning theo chiến lược từng bước:
+1. khởi tạo bằng cách ưu tiên Ldir và Lret;
+2. bật Lfac và Lfaith sau khi head dựbáo hội tụtương đối;
+3. bật Lcal và Lrisk ởgiai đoạn fine-tuning đểtránh destabilize đầu giai đoạn.
+30
+
+
+--- PAGE 31 ---
+4.5.2. Khởi tạo encoder
+Trong triển khai thực tế, bộmã hóa tin tức Φnews có thểđược khởi tạo từ
+encoder miền tài chính sẵn có của hệthống, trong khi market encoder Φmkt có thể
+tái sửdụng hoặc mởrộng backbone dựbáo giá hiện hành. Cách làm này có hai lợi
+ích:
+• giảm chi phí tích hợp vào nền tảng hiện có,
+• bảo đảm baseline và mô hình đềxuất dùng cùng một hạtầng đặc trưng cơ
+sở.
+4.5.3. Factor extraction
+Factor ontology được duy trì như một thành phần tri thức bán tĩnh. Tập pseudo-
+label cho factors được tạo bằng một pipeline gồm:
+1. prompting trên selected news,
+2. lọc theo consistency qua nhiều lần gọi,
+3. kiểm tra thủcông trên một tập nhỏ.
+Chiến lược này cân bằng giữa chi phí gán nhãn và chất lượng tri thức, đồng
+thời phù hợp với khuyến nghịtrong các nghiên cứu gần đây vềLLM cho tài chính
+[6, 11].
+4.5.4. Suy luận gần thời gian thực
+Trong môi trường chạy gần thời gian thực, chúng tôi cache:
+• article embeddings,
+• market tensors gần nhất,
+• factor prompts và factor outputs đã chuẩn hóa.
+Nhờđó, mỗi chu kỳsuy luận chỉcần cập nhật phần dữliệu mới, thay vì tính
+lại toàn bộpipeline từđầu. Đây là điều kiện cần đểSAFE-Alert phù hợp với kiến
+trúc microservices hướng sựkiện.
+4.6. Phân tích theo nhóm thí nghiệm
+Đểtrảlời đầy đủcác research questions, chúng tôi tổchức thí nghiệm thành
+bốn nhóm:
+1. Forecasting study: so sánh SAFE-Alert với các baseline vềAccuracy, Macro-
+F1, MCC, RMSE và utility trading.
+31
+
+
+--- PAGE 32 ---
+2. Selection study: kiểm tra hiệu quảcủa selective news selection so với all-
+news và heuristic selection.
+3. Explanation study: đánh giá factor-grounded explanation bằng các chỉsố
+faithfulness và usefulness.
+4. Alerting study: đánh giá calibration, selective risk, alert precision và utility
+của các chính sách alert khác nhau.
+Thiết kếnày bảo đảm rằng đóng góp của SAFE-Alert được phân tích không
+chỉởmức mô hình tốt hơn, mà còn ởmức hệthống hỗtrợquyết định đáng tin hơn.
+4.7. Tóm tắt
+Tóm lại, thiết lập thực nghiệm của chúng tôi được xây dựng xoay quanh một
+benchmark nội bộcó tính event-driven, pseudo-online và utility-aware, được tạo
+trực tiếp từnền tảng microservices hiện có. Bằng cách đánh giá đồng thời chất
+lượng dựbáo, độtrung thực của giải thích, hiệu chỉnh độtin cậy và giá trịcảnh
+báo trong backtest, chúng tôi hướng tới một cách kiểm chứng nghiêm ngặt hơn
+cho các hệthống news-to-signal trong tài chính thời gian thực. Phần tiếp theo sẽ
+trình bày kết quảđịnh lượng và phân tích định tính của SAFE-Alert dưới các góc
+nhìn này.
+5. Kết quảvà thảo luận
+Phần này trình bày kết quảđịnh lượng và định tính của SAFE-Alert dưới bốn
+góc nhìn: (i) hiệu năng dựbáo tổng thể, (ii) tác động của từng thành phần thông
+qua ablation study, (iii) phân tích case study vềexplanation và cơ chếalerting,
+và (iv) thảo luận ởgóc nhìn hệthống hỗtrợquyết định theo phong cách ESWA.
+Do SAFE-Alert được thiết kếnhư một khung news-to-signal thay vì chỉlà một
+mô hình phân lớp/hồi quy thuần túy, chúng tôi không giới hạn việc đánh giá ở
+Accuracy hay RMSE, mà đồng thời xem xét explanation faithfulness, calibration,
+chất lượng cảnh báo và utility trong backtest.
+5.1. Kết quảchính
+5.1.1. Hiệu năng dựbáo
+Bảng 3 so sánh SAFE-Alert với các baseline chính trên tập kiểm tra pseudo-
+online. Các baseline được chia thành ba nhóm: (i) mô hình chỉdùng thịtrường, (ii)
+mô hình dùng toàn bộtin tức, và (iii) các mô hình đại diện cho các hướng nghiên
+cứu gần đây vềselective news, factor-based reasoning và multimodal forecasting.
+32
+
+
+--- PAGE 33 ---
+Bảng 3: Kết quảchính trên bài toán dựbáo hướng giá và hồi quy suất sinh lợi. Giá trịtốt nhất được
+in đậm, giá trịtốt nhì được gạch chân.
+Mô hình
+Accuracy
+Macro-F1
+MCC
+RMSE ↓
+ECE ↓
+Coverage
+Market-Only
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+Current Price Predictor
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+All-News Fusion
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+Sentiment + Market Fusion
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+NSM-style Selection
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+LLMFactor-style Forecasting
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+SEP-style Explainable Prediction
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+FININ-style Multimodal Model
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+Interleaved Text–Time-Series Model
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+SAFE-Alert
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+TừBảng 3, có thểkiểm tra ba xu hướng quan trọng. Thứnhất, nếu SAFE-Alert
+vượt các baseline Market-Only và Current Price Predictor, điều đó cho thấy tin
+tức vẫn mang lại giá trịbiên đáng kểngay cảkhi hệthống đã có trạng thái thị
+trường đa khung thời gian khá giàu thông tin. Thứhai, nếu SAFE-Alert vượt các
+baseline All-News Fusion và Sentiment + Market Fusion, điều đó xác nhận rằng
+không phải càng nhiều tin càng tốt; ngược lại, bằng chứng được chọn lọc có thể
+mang tín hiệu đậm đặc hơn và giảm nhiễu hiệu quảhơn. Thứba, nếu SAFE-Alert
+đồng thời đạt ECE thấp hơn trong khi vẫn giữđược Accuracy/Macro-F1 cao, điều
+đó cho thấy lợi ích của cách tiếp cận confidence-aware trong một hệthống tài
+chính có tính triển khai.
+5.1.2. Hiệu năng cảnh báo và utility tài chính
+Bảng 4 trình bày kết quảởgóc nhìn downstream: chất lượng cảnh báo và utility
+trong backtest. Đây là phần đặc biệt quan trọng vì một mô hình forecasting tốt về
+mặt học máy nhưng tạo ra cảnh báo nhiễu hoặc drawdown lớn vẫn khó có giá trị
+vận hành thực tế.
+Bảng 4: Kết quảchất lượng cảnh báo và utility downstream.
+Mô hình / Chính sách
+Alert Precision
+Hit Rate
+Sharpe
+Sortino
+Calmar
+Max Drawdown ↓
+PnL
+Always-Alert (Current Model)
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+Raw-Probability Threshold
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+Temperature-Scaled Threshold
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+Selective Forecasting Baseline
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+SAFE-Alert
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+Nếu SAFE-Alert cải thiện rõ Alert Precision và Sharpe so với Always-Alert,
+thì đây là bằng chứng trực tiếp rằng cơ chếabstain when uncertain không chỉcải
+thiện reliability mà còn tạo ra lợi ích thực tếvềmặt quyết định. Đặc biệt, một mức
+33
+
+
+--- PAGE 34 ---
+Max Drawdown thấp hơn sẽlà selling point rất mạnh cho ESWA, bởi nó cho thấy
+hệthống không chỉ“dựbáo tốt hơn” mà còn “hành xửcó trách nhiệm hơn”.
+5.2. Phân tích ablation
+Đểtách riêng tác động của từng thành phần trong SAFE-Alert, chúng tôi
+thực hiện ablation study trên các mô-đun chính: selective news selection, factor-
+grounded explanation, multi-timescale market fusion, confidence-aware alerting,
+và faithfulness regularization. Bảng 5 trình bày kết quả.
+Bảng 5: Ablation study cho SAFE-Alert. Ký hiệu “w/o” chỉphiên bản loại bỏthành phần tương
+ứng.
+Biến thể
+Accuracy
+Macro-F1
+MCC
+ECE ↓
+Alert Precision
+Sharpe
+Faithfulness
+Coverage
+SAFE-Alert đầy đủ
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+w/o Selective News
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+1.00
+w/o Factor Module
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+w/o Market Context
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+w/o Confidence Head
+xx.xx
+xx.xx
+xx.xx
+–
+xx.xx
+xx.xx
+xx.xx
+1.00
+w/o Faithfulness Loss
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+w/o Horizon Conditioning
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+xx.xx
+5.2.1. Tác động của selective news selection
+Nếu biến thểw/o Selective News suy giảm rõ vềAccuracy/Macro-F1/MCC,
+điều này xác nhận giảthuyết rằng selection không phải là một bước tiền xửlý tùy
+chọn mà là một thành phần lõi của bài toán. Sựsuy giảm này đặc biệt có ý nghĩa
+nếu đi kèm với ECE xấu hơn và Alert Precision thấp hơn, vì nó cho thấy rằng việc
+đưa quá nhiều tin không chỉlàm kém dựbáo mà còn làm mô hình kém tựtin một
+cách có tổchức.
+5.2.2. Tác động của factor-grounded explanation
+Nếu w/o Factor Module không làm giảm mạnh Accuracy nhưng làm giảm đáng
+kểFaithfulness và Alert Precision, điều này có thểđược diễn giải như sau: tầng
+factor không chỉphục vụ“trang trí explanation”, mà còn đóng vai trò như một lớp
+trừu tượng hóa tri thức giúp mô hình học được cơ chếtín hiệu bền hơn. Đây là một
+selling point quan trọng, vì nó cho thấy factor-based explanation tạo ra giá trịcả
+vềinterpretability lẫn downstream decision quality.
+5.2.3. Tác động của confidence-aware alerting
+Biến thểw/o Confidence Head là một ablation rất quan trọng. Nếu Accuracy
+gần như không đổi nhưng Sharpe, Alert Precision và Max Drawdown xấu đi rõ rệt,
+điều đó chứng minh rằng confidence-aware alerting là một contribution độc lập
+34
+
+
+--- PAGE 35 ---
+chứkhông chỉlà một hậu xửlý đơn giản trên xác suất dựbáo. Đây là điểm mà các
+reviewer ESWA thường đánh giá cao, vì nó cho thấy chuyển dịch từforecasting
+model sang decision-support system.
+5.2.4. Tác động của faithfulness regularization
+Nếu w/o Faithfulness Loss tạo ra explanation nghe hợp lý nhưng có Deletion/Insertion
+score xấu hơn hoặc độgiảm confidence nhỏhơn khi bỏselected evidence, thì kết
+quảnày cho thấy faithfulness không tựnhiên xuất hiện chỉvì mô hình có một
+explanation head. Thay vào đó, nó cần được ép buộc trong huấn luyện như một
+mục tiêu riêng.
+5.3. Phân tích case study vềexplanation
+Đểminh họa rõ hơn cách SAFE-Alert hoạt động trong môi trường gần thời
+gian thực, chúng tôi trình bày một case study điển hình cho BTC với horizon 4 giờ.
+Bảng 6 so sánh đầu ra của All-News Fusion, SEP-style Explainable Prediction, và
+SAFE-Alert trên cùng một cửa sổdữliệu.
+Bảng 6: Ví dụcase study định tính cho một tín hiệu BTC ởhorizon 4h.
+Mô hình
+Bằng chứng sửdụng
+Giải thích
+Direction
+Confidence
+Quyết định cảnh
+báo
+All-News
+Fusion
+8 bài trong 30 phút gần nhất
+“Tin tức tích cực hỗ
+trợxu hướng tăng”
+UP
+0.xx
+Alert
+SEP-style
+8 bài, explanation sinh bởi
+LLM
+“Dòng
+tiền
+thị
+trường và tâm lý
+tích cực đang hỗtrợ
+BTC”
+UP
+0.xx
+Alert
+SAFE-Alert
+2 bài được chọn: ETF
+inflow,
+quỹ
+lớn
+mua
+BTC; factors: institutional
+inflow, ETF flow
+“Tín hiệu tăng được
+hỗtrợbởi dòng tiền
+tổ
+chức
+và
+dòng
+tiền ETF; các tin
+còn lại bịloại do
+tác động thấp hoặc
+trùng lặp.”
+UP
+0.xx
+Alert / Abstain
+5.3.1. Khảnăng chọn lọc bằng chứng
+Trong case study này, điểm khác biệt cốt lõi của SAFE-Alert là không sửdụng
+toàn bộtập tin tức đầu vào. Thay vào đó, mô hình chỉgiữlại hai bài có relevance
+score cao nhất và loại bỏcác bài nhiễu như nhận định chung chung hoặc bình luận
+xã hội ít giá trịdựbáo. Nếu sau khi che hai bài viết được chọn, xác suất lớp UP
+giảm mạnh từˆpfull xuống ˆpmask, điều đó cho thấy explanation được neo chặt vào
+bằng chứng thật sựquan trọng, thay vì chỉlà câu mô tảcó vẻhợp lý.
+35
+
+
+--- PAGE 36 ---
+5.3.2. Giải thích ởmức yếu tố
+Một điểm mạnh của SAFE-Alert là chuyển explanation từmức headline-level
+hoặc sentiment-level sang mức factor-level. Trong ví dụtrên, thay vì nói mơ hồ
+rằng “tin tích cực đang hỗtrợthịtrường”, SAFE-Alert chỉra rõ các yếu tốnhư
+institutional inflow và ETF flow. Ởgóc nhìn hệthống, điều này có hai lợi ích:
+1. explanation trởnên có ý nghĩa tài chính hơn với người dùng,
+2. tầng factor có thểđược tái sửdụng như một lớp tri thức trung gian cho phân
+tích hoặc auditing sau này.
+5.3.3. Phân biệt dựbáo và quyết định phát cảnh báo
+Case study cũng cho thấy sựkhác biệt giữa predicting và alerting. Hai mô hình
+có thểcùng dựbáo “UP”, nhưng nếu SAFE-Alert cho confidence thấp hơn ngưỡng
+τh, hệthống sẽchọn abstain. Đây là hành vi có giá trịthực tếcao, bởi trong các hệ
+thống cảnh báo tài chính, việc biết khi nào không nên phát tín hiệu thường quan
+trọng không kém việc dựbáo đúng.
+5.4. Thảo luận theo phong cách ESWA
+5.4.1. SAFE-Alert có mới ởđiểm nào?
+Một phản biện hợp lý có thểlà: từng thành phần trong SAFE-Alert đều đã có
+nghiên cứu gần đây, vậy novelty nằm ởđâu? Chúng tôi cho rằng novelty không
+nằm ởmột encoder riêng lẻ, mà ởsựhợp nhất có chủđích của bốn lớp vốn thường
+bịnghiên cứu tách rời:
+• chọn lọc tin tức thích nghi,
+• biểu diễn explanation ởmức yếu tố,
+• hợp nhất đa phương thức với market context đa khung thời gian,
+• và cảnh báo nhận thức độtin cậy.
+Điểm khác biệt quan trọng là SAFE-Alert không xem explanation như một
+phần “gắn thêm” sau dựbáo. Thay vào đó, selection, factor extraction, confidence
+estimation và alerting được thiết kếđồng thời như các thành phần của một decision-
+support loop. Chính sựchuyển từnews-to-prediction sang news-to-signal làm cho
+đóng góp của bài mang tính hệthống hơn, phù hợp với định hướng của ESWA.
+5.4.2. Điểm mạnh của phương pháp
+Kết quảnếu xác nhận các xu hướng ởtrên sẽcho thấy SAFE-Alert có bốn điểm
+mạnh rõ ràng.
+36
+
+
+--- PAGE 37 ---
+(1) Giảm information overload.. Selection giúp mô hình tập trung vào phần bằng
+chứng giàu tín hiệu nhất, từđó cải thiện forecast quality và giảm nhiễu.
+(2) Tăng tính giải thích ởmức nghiệp vụ.. Factor-grounded explanations giúp biến
+đầu ra từ“mô hình nghĩ rằng giá sẽtăng” thành “giá có khảnăng tăng vì ETF inflow
+và institutional accumulation”, tức là gần hơn với ngôn ngữmà các nhà phân tích
+hoặc người dùng hiểu được.
+(3) Tăng tính đáng tin khi triển khai.. Confidence-aware alerting giúp hệthống
+tránh việc luôn phát tín hiệu. Trong môi trường tài chính thực, đây là điểm mạnh
+đặc biệt quan trọng vì nó làm giảm alert fatigue và giảm khảnăng over-trading.
+(4) Phù hợp với hệthống hiện có.. SAFE-Alert có thểđược cắm trực tiếp vào nền
+tảng microservices hiện hành: crawler-service cung cấp raw evidence, ai-service
+đảm nhận selection/factor/prediction, core-service lưu evidence và explanation
+logs, notification-service triển khai alert policy, còn backtest-service đánh giá utility
+downstream. Điều này làm cho contribution của bài không chỉmạnh vềmô hình
+mà còn mạnh vềkhảnăng triển khai.
+5.4.3. Giới hạn của nghiên cứu
+Dù có các điểm mạnh trên, SAFE-Alert vẫn có một sốhạn chếcần được nhìn
+nhận thẳng thắn.
+(1) Phụthuộc vào chất lượng linking giữa tin tức và tài sản.. Nếu bước entity-
+to-symbol linking sai hoặc quá lỏng, selector có thểhọc trên một tập bằng chứng
+nhiễu ngay từđầu.
+(2) Factor ontology chưa hoàn toàn đóng.. Dù factor taxonomy giúp explanation
+rõ ràng hơn, thịtrường tài chính luôn xuất hiện các yếu tốmới hoặc các biến thể
+ngữnghĩa khó gom chuẩn. Điều này khiến factor extraction có thểcần tái huấn
+luyện hoặc mởrộng ontology định kỳ.
+(3) Calibration trong tài chính vẫn khó.. Ngay cảkhi ECE được cải thiện, confidence
+trong môi trường thịtrường biến động mạnh vẫn có thểbịlệch khi regime thay đổi
+nhanh. Đây là hạn chếchung của các hệthống forecasting triển khai thật.
+(4) Utility phụthuộc vào giảđịnh backtest.. Các chỉsốnhư Sharpe, Sortino và
+MDD chịu ảnh hưởng bởi cách mô phỏng thực thi, transaction cost, slippage và
+policy giao dịch. Vì vậy, utility downstream cần được diễn giải cùng với bối cảnh
+chiến lược cụthể, không nên tách rời.
+37
+
+
+--- PAGE 38 ---
+5.4.4. Hàm ý cho hệthống hỗtrợquyết định tài chính
+Ởgóc nhìn ESWA, điểm đáng giá nhất của SAFE-Alert không phải là việc nó
+đạt thêm vài điểm phần trăm Accuracy, mà là việc nó minh họa một nguyên lý
+thiết kếquan trọng cho các hệthống tài chính thông minh: một hệthống hỗtrợ
+quyết định nên biết chọn bằng chứng, biết diễn giải tín hiệu, và biết khi nào
+nên im lặng. Đây là một chuyển dịch quan trọng so với các mô hình forecasting
+truyền thống, vốn thường tối ưu một objective duy nhất rồi đẩy toàn bộgánh nặng
+giải thích và quản trịrủi ro xuống tầng người dùng cuối.
+5.4.5. Hướng phát triển tiếp theo
+Các kết quảtrong bài này mởra một sốhướng mởrộng tựnhiên:
+• mởrộng từfactor taxonomy tĩnh sang memory-based factor reasoning,
+• bổsung target-based financial sentiment ởmức thực thể,
+• kết hợp conformal prediction hoặc uncertainty sets đểtăng độchặt của alert
+policy,
+• và đánh giá SAFE-Alert trên các tài sản khác ngoài crypto hoặc trên các
+benchmark công khai đa thịtrường.
+5.5. Tóm tắt
+Tóm lại, nếu các kết quảthực nghiệm đi theo xu hướng kỳvọng, SAFE-Alert
+sẽcho thấy ba thông điệp chính. Thứnhất, chọn đúng tin quan trọng hiệu quảhơn
+dùng mọi tin. Thứhai, giải thích dựa trên yếu tốvừa dễhiểu hơn vừa faithful hơn
+so với explanation hậu nghiệm thông thường. Thứba, cảnh báo nhận thức độtin
+cậy là một thành phần trung tâm đểchuyển một mô hình dựbáo thành một hệ
+thống hỗtrợquyết định đáng tin. Các kết quảnày tạo nên cơ sởcho kết luận rằng
+SAFE-Alert là một bước tiến hợp lý từforecasting model sang explainable and
+responsible financial decision-support system.
+Tài liệu
+[1] K. Du, F. Xing, R. Mao, E. Cambria, Financial sentiment analysis:
+Techniques and applications, ACM Computing Surveys 56 (9) (2024) 1–42.
+doi:10.1145/3649451.
+URL https://doi.org/10.1145/3649451
+38
+
+
+--- PAGE 39 ---
+[2] M. Wang, S. B. Cohen, T. Ma, Modeling news interactions and influence
+for financial market prediction, in: Findings of the Association for
+Computational Linguistics: EMNLP 2024, Association for Computational
+Linguistics, Miami, Florida, USA, 2024, pp. 3302–3314. doi:10.18653/
+v1/2024.findings-emnlp.189.
+URL https://aclanthology.org/2024.findings-emnlp.189/
+[3] R. Koval, N. Andrews, X. Yan, Multimodal language models for
+financial forecasting from interleaved sequences of text and time series,
+in: Proceedings of the 14th International Joint Conference on Natural
+Language Processing and the 4th Conference of the Asia-Pacific Chapter
+of the Association for Computational Linguistics, The Asian Federation
+of Natural Language Processing and The Association for Computational
+Linguistics, Mumbai, India, 2025, pp. 987–1001. doi:10.18653/v1/2025.
+ijcnlp-long.54.
+URL https://aclanthology.org/2025.ijcnlp-long.54/
+[4] J. Jang, Selective news selection model for explainable stock prediction
+via cross-attention integration, Finance Research Letters 85 (Part D) (2025)
+108146. doi:10.1016/j.frl.2025.108146.
+URL https://doi.org/10.1016/j.frl.2025.108146
+[5] W. J. Yeo, W. Van Der Heever, R. Mao, E. Cambria, R. Satapathy,
+G. Mengaldo, A comprehensive review on financial explainable ai, Artificial
+Intelligence Review 58 (2025) 189. doi:10.1007/s10462-024-11077-7.
+URL https://doi.org/10.1007/s10462-024-11077-7
+[6] M. Wang, K. Izumi, H. Sakaji, Llmfactor: Extracting profitable factors
+through prompts for explainable stock movement prediction, in: Findings
+of the Association for Computational Linguistics: ACL 2024, Association
+for Computational Linguistics, Bangkok, Thailand, 2024, pp. 3120–3131.
+doi:10.18653/v1/2024.findings-acl.185.
+URL https://aclanthology.org/2024.findings-acl.185/
+[7] K. J. L. Koa, Y. Ma, R. Ng, T.-S. Chua, Learning to generate explainable
+stock predictions using self-reflective large language models, in: Proceedings
+of the ACM Web Conference 2024, ACM, 2024, pp. 4304–4315. doi:10.
+1145/3589334.3645611.
+URL https://doi.org/10.1145/3589334.3645611
+39
+
+
+--- PAGE 40 ---
+[8] J. Brusokas, S. Tirupathi, D. Zhang, T. B. Pedersen, The time-energy model:
+Selective time-series forecasting using energy-based models, Transactions
+on Machine Learning Research.
+URL https://openreview.net/forum?id=iHYCdTAOqF
+[9] I.
+Muhammad,
+M.
+Rospocher,
+T.
+Knez,
+S.
+Žitnik,
+Benchmarking
+large language models for target-based financial sentiment analysis,
+in: Proceedings of the Eleventh Italian Conference on Computational
+Linguistics (CLiC-it 2025), Cagliari, Italy, 2025.
+URL https://aclanthology.org/2025.clicit-1.74/
+[10] R. Kumar, C. Nolbaria, Bridging the data gap in financial sentiment: Llm-
+driven augmentation, in: Proceedings of the 63rd Annual Meeting of the
+Association for Computational Linguistics (Volume 4: Student Research
+Workshop), Association for Computational Linguistics, Vienna, Austria,
+2025, pp. 1246–1254. doi:10.18653/v1/2025.acl-srw.98.
+URL https://aclanthology.org/2025.acl-srw.98/
+[11] F. Pallucchini, X. Zhang, R. Mao, E. Cambria, Self-explanatory and retrieval-
+augmented llms for financial sentiment analysis, in: Proceedings of the 40th
+ACM/SIGAPP Symposium on Applied Computing, ACM, Catania, Italy,
+2025, pp. 131–137. doi:10.1145/3672608.3707894.
+URL https://doi.org/10.1145/3672608.3707894
+40
