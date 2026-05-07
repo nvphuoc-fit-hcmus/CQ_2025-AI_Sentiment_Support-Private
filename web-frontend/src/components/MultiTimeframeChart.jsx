@@ -6,7 +6,7 @@ import { LoadingSpinner } from './LoadingSpinner';
 import { useTheme } from './ThemeProvider';
 import { calculateSMA, calculateEMA, calculateBollingerBands, calculateRSI, calculateMACD } from '../utils/technicalIndicators';
 
-export default function MultiTimeframeChart({ symbol, timeframe, chartId }) {
+export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTime, onCrosshairSync }) {
     const chartContainerRef = useRef();
     const chartRef = useRef();
     const candleSeriesRef = useRef();
@@ -33,8 +33,11 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId }) {
     // News markers
     const newsMarkersRef = useRef([]);
 
-    const { authFetch } = useStore();
+    const { authFetch, safeAlertSignal } = useStore();
     const { isDark } = useTheme();
+
+    // Alert marker series ref
+    const alertMarkerSeriesRef = useRef(null);
     const [data, setData] = useState([]);
     const [newsData, setNewsData] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -245,7 +248,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId }) {
             }
         });
 
-        // Subscribe to crosshair move for news marker tooltip
+        // Subscribe to crosshair move for news marker tooltip + cross-hair sync
         chart.subscribeCrosshairMove(param => {
             if (!param.point || !param.time) {
                 setNewsTooltip(null);
@@ -256,30 +259,20 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId }) {
 
             const time = typeof param.time === 'number' ? param.time : Math.floor(param.time);
 
+            // Cross-hair sync: emit time to parent for other charts
+            if (onCrosshairSync) {
+                onCrosshairSync(chartId, time);
+            }
+
             // Calculate tolerance based on timeframe
-            // Larger timeframes need larger tolerance for hover detection
-            let tolerance = 60; // Default 60 seconds for minute charts
+            let tolerance = 60;
             switch (timeframe) {
-                case '1m':
-                case '5m':
-                case '15m':
-                    tolerance = 60; // 1 minute
-                    break;
-                case '1h':
-                    tolerance = 300; // 5 minutes
-                    break;
-                case '4h':
-                    tolerance = 1800; // 30 minutes
-                    break;
-                case '1d':
-                    tolerance = 7200; // 2 hours
-                    break;
-                case '1w':
-                    tolerance = 86400; // 1 day
-                    break;
-                case '1M':
-                    tolerance = 604800; // 7 days
-                    break;
+                case '1m': case '5m': case '15m': tolerance = 60; break;
+                case '1h': tolerance = 300; break;
+                case '4h': tolerance = 1800; break;
+                case '1d': tolerance = 7200; break;
+                case '1w': tolerance = 86400; break;
+                case '1M': tolerance = 604800; break;
             }
 
             // Check if there's a news marker at this time (within tolerance)
@@ -586,6 +579,53 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId }) {
         }
     }, [newsData, data, showNews]);
 
+    // SAFE-Alert signal markers on chart
+    useEffect(() => {
+        if (!candleSeriesRef.current || data.length === 0 || !safeAlertSignal) return;
+
+        const lastCandle = data[data.length - 1];
+        if (!lastCandle) return;
+
+        const dir = safeAlertSignal.direction;
+        const shouldAlert = safeAlertSignal.shouldAlert;
+
+        // Create signal marker at the latest candle
+        const signalMarker = {
+            time: lastCandle.time,
+            position: dir === 'BUY' || dir === 'UP' ? 'belowBar' : 'aboveBar',
+            color: dir === 'BUY' || dir === 'UP'
+                ? '#089981'
+                : dir === 'SELL' || dir === 'DOWN'
+                    ? '#f23645'
+                    : '#787b86',
+            shape: dir === 'BUY' || dir === 'UP'
+                ? 'arrowUp'
+                : dir === 'SELL' || dir === 'DOWN'
+                    ? 'arrowDown'
+                    : 'circle',
+            text: shouldAlert
+                ? `${dir === 'BUY' || dir === 'UP' ? '▲' : dir === 'SELL' || dir === 'DOWN' ? '▼' : '─'} ${(safeAlertSignal.confidence * 100).toFixed(0)}%`
+                : '',
+            size: shouldAlert ? 2 : 1,
+        };
+
+        // Merge with existing news markers (if any)
+        const existingMarkers = newsMarkersRef.current || [];
+        const allMarkers = [...existingMarkers, signalMarker].sort((a, b) => a.time - b.time);
+
+        // Deduplicate by time (keep signal marker if conflict)
+        const unique = [];
+        const seen = new Set();
+        for (const m of allMarkers) {
+            if (!seen.has(m.time)) {
+                seen.add(m.time);
+                unique.push(m);
+            }
+        }
+
+        candleSeriesRef.current.setMarkers(unique);
+    }, [safeAlertSignal, data]);
+
     // Socket.IO for Realtime Updates (all timeframes)
     useEffect(() => {
         if (socketRef.current) {
@@ -701,8 +741,17 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId }) {
         }));
     };
 
+    // Determine if system is in Abstain mode (Uncertain Zone)
+    const isAbstain = safeAlertSignal && !safeAlertSignal.shouldAlert;
+
     return (
         <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+            {/* Uncertainty Zone overlay when system is in Abstain mode */}
+            {isAbstain && (
+                <div className="uncertainty-zone">
+                    <span className="uncertainty-label">⚠ Uncertain Zone — Chờ tín hiệu tin cậy</span>
+                </div>
+            )}
             {/* Indicator Controls */}
             <div style={{
                 position: 'absolute',
