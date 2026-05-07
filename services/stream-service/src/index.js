@@ -13,6 +13,24 @@ let connectionCount = 0;
 let messageCount = 0;
 let startTime = Date.now();
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function connectRedisWithRetry(client, name) {
+  let attempt = 0;
+  while (!isShuttingDown) {
+    try {
+      attempt += 1;
+      await client.connect();
+      console.log(`${name} connected`);
+      return;
+    } catch (err) {
+      const waitMs = Math.min(1000 * 2 ** Math.min(attempt, 5), 15000);
+      console.error(`${name} connection failed (attempt ${attempt}), retrying in ${waitMs}ms:`, err?.message || err);
+      await sleep(waitMs);
+    }
+  }
+}
+
 // Enhanced HTTP Server with detailed health check
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
@@ -46,14 +64,16 @@ async function start() {
   const pubClient = createClient({ url: REDIS_URL });
   const subClient = pubClient.duplicate();
 
-  try {
-    await pubClient.connect();
-    await subClient.connect();
-    console.log('Redis adapter connected');
-  } catch (err) {
-    console.error('Redis connection failed:', err);
-    process.exit(1);
-  }
+  pubClient.on('error', (err) => {
+    console.error('Redis pub client error:', err?.message || err);
+  });
+  subClient.on('error', (err) => {
+    console.error('Redis sub client error:', err?.message || err);
+  });
+
+  await connectRedisWithRetry(pubClient, 'Redis pub client');
+  await connectRedisWithRetry(subClient, 'Redis sub client');
+  console.log('Redis adapter connected');
 
   const io = new Server(httpServer, {
     cors: { origin: '*', methods: ['GET'] },
