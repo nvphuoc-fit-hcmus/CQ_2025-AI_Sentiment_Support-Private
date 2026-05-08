@@ -42,10 +42,14 @@ logging.basicConfig(level=logging.INFO)
 
 
 class FaithfulnessEvaluator:
-    def __init__(self, model: SAFEAlertNet, horizon: str, device: str = "cpu") -> None:
+    def __init__(self, model: SAFEAlertNet, horizon: str, device: str = "cpu",
+                 symbol: str | None = None) -> None:
         self.model = model.to(device)
         self.horizon = horizon
         self.device = device
+        # Stored for API compatibility with SAFEAlertNet.forward(..., symbol=...).
+        # The paper-final Eq.9 query ignores symbol.
+        self.symbol = symbol
         self.model.eval()
 
     @staticmethod
@@ -59,6 +63,7 @@ class FaithfulnessEvaluator:
             article_emb=article_emb,
             article_mask=article_mask,
             article_meta_vec=article_meta,
+            symbol=self.symbol,
         )
 
     def _selected_mask(self, attn_weights: torch.Tensor, article_mask: torch.Tensor) -> torch.Tensor:
@@ -93,6 +98,7 @@ class FaithfulnessEvaluator:
                     article_emb=article_emb,
                     article_mask=article_mask,
                     article_meta_vec=article_meta,
+                    symbol=self.symbol,
                 )
 
                 full_max = self._max_prob_from_logits(out_full["dir_logits"])
@@ -134,6 +140,22 @@ class FaithfulnessEvaluator:
         }
 
     def insertion_test(self, test_loader: DataLoader, num_batches: int = 50) -> dict:
+        """Insertion faithfulness test per PDF Section 4.4.2.
+
+        Protocol:
+          1. Baseline = market-only prediction (article_emb=None → mkt_only path).
+          2. Treatment = prediction using ONLY the top-K selected articles.
+          3. lift = max_prob(treatment) - max_prob(baseline).
+
+        A high positive lift confirms that the selected evidence — rather than
+        the presence of any articles — drives the model's confidence, matching
+        the paper's Insertion metric definition.
+
+        Previous implementation injected a synthetic "average + 0.05" token and
+        compared against the full article set, which measured a different quantity
+        (sensitivity to an artificial out-of-distribution input) and is not the
+        Insertion test described in Section 4.4.2.
+        """
         lifts = []
 
         with torch.no_grad():
@@ -146,21 +168,23 @@ class FaithfulnessEvaluator:
                 article_meta = batch["article_metadata"].to(self.device)
                 article_mask = batch["article_mask"].to(self.device)
 
+                # Step 1: no-article baseline (market-only forward path).
+                out_baseline = self._forward(market_feat, None, None, None)
+                baseline_max = self._max_prob_from_logits(out_baseline["dir_logits"])
+
+                # Step 2: identify top-K selected articles from full forward.
                 out_full = self._forward(market_feat, article_emb, article_mask, article_meta)
-                full_max = self._max_prob_from_logits(out_full["dir_logits"])
+                attn = out_full.get("attn_weights")
+                if attn is None:
+                    # Market-only sample: no articles exist → skip (lift undefined).
+                    continue
 
-                # Insert one synthetic positive article token per sample.
-                synth_emb = article_emb.mean(dim=1, keepdim=True) + 0.05
-                synth_meta = article_meta.mean(dim=1, keepdim=True)
-                synth_mask = torch.ones(article_emb.shape[0], 1, dtype=article_mask.dtype, device=self.device)
+                # Step 3: forward with only the top-K selected articles visible.
+                selected_mask = self._selected_mask(attn, article_mask)
+                out_selected = self._forward(market_feat, article_emb, selected_mask, article_meta)
+                selected_max = self._max_prob_from_logits(out_selected["dir_logits"])
 
-                emb_with_synth = torch.cat([article_emb, synth_emb], dim=1)
-                meta_with_synth = torch.cat([article_meta, synth_meta], dim=1)
-                mask_with_synth = torch.cat([article_mask, synth_mask], dim=1)
-
-                out_synth = self._forward(market_feat, emb_with_synth, mask_with_synth, meta_with_synth)
-                synth_max = self._max_prob_from_logits(out_synth["dir_logits"])
-                lifts.extend((synth_max - full_max).cpu().numpy())
+                lifts.extend((selected_max - baseline_max).cpu().numpy())
 
         lifts = np.asarray(lifts, dtype=np.float32)
         if lifts.size == 0:
@@ -203,6 +227,7 @@ class FaithfulnessEvaluator:
                     article_emb=article_emb,
                     article_mask=article_mask,
                     article_meta_vec=article_meta,
+                    symbol=self.symbol,
                 )
 
                 attn = out_full.get("attn_weights")
@@ -322,16 +347,25 @@ class FaithfulnessEvaluator:
 
 
 def _load_checkpoint(model: SAFEAlertNet, model_path: Path, device: str) -> None:
+    # strict=False keeps this evaluator tolerant to checkpoint schema drift.
+    # Missing / unexpected keys are surfaced via RuntimeWarning.
     ckpt = torch.load(model_path, map_location=device, weights_only=False)
     if isinstance(ckpt, dict):
         if "model_state" in ckpt:
-            model.load_state_dict(ckpt["model_state"])
-            return
-        if "model_state_dict" in ckpt:
-            model.load_state_dict(ckpt["model_state_dict"])
-            return
-    # Raw state_dict fallback.
-    model.load_state_dict(ckpt)
+            _result = model.load_state_dict(ckpt["model_state"], strict=False)
+        elif "model_state_dict" in ckpt:
+            _result = model.load_state_dict(ckpt["model_state_dict"], strict=False)
+        else:
+            _result = model.load_state_dict(ckpt, strict=False)
+    else:
+        _result = model.load_state_dict(ckpt, strict=False)
+    if _result.missing_keys or _result.unexpected_keys:
+        import warnings as _w
+        _w.warn(
+            f"Checkpoint schema mismatch: missing={list(_result.missing_keys)[:5]}, "
+            f"unexpected={list(_result.unexpected_keys)[:5]} (showing first 5).",
+            RuntimeWarning, stacklevel=2,
+        )
 
 
 def _build_eval_loader(args: argparse.Namespace) -> DataLoader:

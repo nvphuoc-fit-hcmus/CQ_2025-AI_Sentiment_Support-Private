@@ -1,4 +1,10 @@
 {
+  "_meta": {
+    "version": "2.0",
+    "source_of_truth": true,
+    "description": "Single source of truth for SAFE-Alert factor ontology. All consumers (safe_alert_net.py defaults, precompute_factor_labels.py, news_features) MUST load from this file. Do not fork keyword lists.",
+    "n_factors": 10
+  },
   "FACTOR_NAMES": [
     "institutional_inflow", "etf_flow", "regulatory_easing",
     "regulatory_tightening", "exchange_risk", "liquidity_squeeze",
@@ -6,15 +12,15 @@
     "network_outage"
   ],
   "FACTOR_KEYWORDS": {
-    "institutional_inflow":  ["institution","fund","grayscale","microstrategy","blackrock","corporate","treasury"],
-    "etf_flow":              ["etf","spot etf","bitcoin etf","sec approval","etf inflow","etf outflow"],
-    "regulatory_easing":     ["approved","legal","regulatory clarity","compliant","licensed","framework"],
-    "regulatory_tightening": ["ban","crackdown","illegal","sanction","sec sue","enforcement","restrict"],
-    "exchange_risk":         ["hack","exploit","exchange down","withdrawal halt","insolvent","ftx","celsius","rug"],
-    "liquidity_squeeze":     ["liquidity","leverage","liquidation","margin call","funding rate","squeeze","cascade"],
-    "whale_accumulation":    ["whale","large transaction","on-chain","address","wallet","accumulate","hodl"],
-    "macro_uncertainty":     ["inflation","fed","interest rate","recession","gdp","cpi","fomc","treasury yield"],
-    "protocol_upgrade":      ["upgrade","fork","halving","taproot","merge","protocol","layer2","lightning"],
-    "network_outage":        ["network outage","congestion","fees spike","mempool","hash rate drop","51%"]
+    "institutional_inflow":  ["institution","fund","grayscale","microstrategy","blackrock","corporate","treasury","bitcoin purchase","acquisition","buy","accumul","pension","endowment","sovereign","wealth fund","purchased","invested","allocat"],
+    "etf_flow":              ["etf","spot etf","bitcoin etf","sec approval","inflow","outflow","etf listing","issuance","bitcoin fund","crypto fund","futures etf","bitcoin trust","grayscale premium","discount","nav"],
+    "regulatory_easing":     ["approved","legal","regulatory clarity","compliant","licensed","framework","clearance","authorize","regulation","bill","congress","law","policy","guidance","exemption","sandbox","pilot"],
+    "regulatory_tightening": ["ban","crackdown","illegal","sanction","sec sue","enforcement","restrict","prohibited","suspension","warning","probe","investigation","fine","penalty","delist","cbdc","kyc","aml"],
+    "exchange_risk":         ["hack","exploit","exchange down","withdrawal halt","insolvent","ftx","celsius","rug","compromised","security","breach","stolen","loss","bankrupt","withdrawal","freeze","halted","suspicious"],
+    "liquidity_squeeze":     ["liquidity","leverage","liquidation","margin call","funding rate","squeeze","cascade","deleverag","short squeeze","long squeeze","open interest","perp","futures","basis","contango","backwardation"],
+    "whale_accumulation":    ["whale","transaction","on-chain","address","wallet","accumulate","hodl","large buy","holdings","large transaction","miner","mining","cold storage","staking","hodler","accumulation","supply"],
+    "macro_uncertainty":     ["inflation","fed","interest rate","recession","gdp","cpi","fomc","yield","economy","growth","rate hike","rate cut","bank","dollar","usd","dxy","treasury","bonds","stock market","equity"],
+    "protocol_upgrade":      ["upgrade","fork","halving","taproot","merge","protocol","layer2","lightning","launch","update","mainnet","testnet","snapshot","airdrop","defi","nft","smart contract","validator","node"],
+    "network_outage":        ["outage","congestion","fees spike","mempool","hash rate","51%","network issue","downtime","slow","backlog","stuck","unconfirmed","difficulty","block time","hashpower","reorg"]
   }
 }

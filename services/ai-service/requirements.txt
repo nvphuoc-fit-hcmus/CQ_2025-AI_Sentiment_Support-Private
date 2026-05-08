@@ -1,18 +1,33 @@
-fastapi[all]
-uvicorn[standard]
-transformers
-torch
-scikit-learn
-xgboost
-lightgbm
-pymongo
-shap
-pandas
-numpy
-python-dotenv
-confluent-kafka
-ta
-apscheduler
-requests
-vaderSentiment
-beautifulsoup4
+# ─── SAFE-Alert AI service pinned requirements (P2 #22) ─────────────────────
+# Pinned to tested versions so reviewers / reproducers get the exact stack
+# used for the reported results. Update versions together, never individually.
+
+# ── Core DL / ML ───────────────────────────────────────────────────────────
+torch==2.6.0
+transformers==4.46.0
+scikit-learn==1.5.2
+xgboost==2.1.2
+lightgbm==4.5.0
+shap==0.46.0
+
+# ── Numerics ───────────────────────────────────────────────────────────────
+numpy==1.26.4
+pandas==2.2.3
+ta==0.11.0
+vaderSentiment==3.3.2
+
+# ── Serving / I/O ──────────────────────────────────────────────────────────
+fastapi[all]==0.115.4
+uvicorn[standard]==0.32.0
+pymongo==4.10.1
+confluent-kafka==2.5.3
+requests==2.32.3
+beautifulsoup4==4.12.3
+apscheduler==3.10.4
+python-dotenv==1.0.1
+
+# ── Config / data ──────────────────────────────────────────────────────────
+PyYAML==6.0.2
+
+# ── Test tooling (needed for tests/test_safe_alert_losses.py) ──────────────
+pytest==8.3.3

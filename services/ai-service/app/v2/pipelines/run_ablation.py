@@ -1,7 +1,7 @@
 """
 Ablation study for SAFE-Alert (PDF Section 5.2).
 
-7 ablation variants are tested (Table 5 in paper):
+8 ablation variants are tested:
   1. w/o_selective_news  -- uniform average over ALL articles, no Top-K gating
   2. w/o_factor          -- z_fac = zeros (factor module disabled)
   3. w/o_market          -- z_mkt = zeros (market encoder disabled)
@@ -9,6 +9,7 @@ Ablation study for SAFE-Alert (PDF Section 5.2).
   5. w/o_faithfulness    -- lambda6 = 0 throughout training (Lfaith disabled)
   6. w/o_horizon         -- h_emb = zeros (horizon conditioning disabled)
   7. w/o_lrisk           -- lambda7 = 0 throughout training (Lrisk disabled)
+  8. w/o_bar_sequences   -- scalar market encoder instead of Eq.16 bar sequences
 
 Usage:
   python run_ablation.py --symbol BTCUSDT --horizon 1h --epochs 30
@@ -44,6 +45,14 @@ from metrics_safe_alert import (
     fit_temperature_scaling, apply_temperature_to_logits,
 )
 from train_safe_alert import SAFEAlertTrainer, _ES_PATIENCE
+# Session 26 — import the train_safe_alert module itself so we can access
+# _TOP_K_MAP / _apply_config_overrides via module attributes at USE time,
+# not at IMPORT time. Python's `from module import name` captures the
+# object at import — if `name` is later rebound via global assignment in
+# the module, the imported alias still points to the old object.
+# `import module` + `module.name` reads fresh every access.
+import train_safe_alert as _train
+from models.safe_alert_net import FACTOR_CLASSES as _FACTOR_CLASSES
 from utils import ARTIFACT_DIR
 
 torch.manual_seed(42)
@@ -76,6 +85,19 @@ ABLATION_VARIANTS = [
     ("w/o_lrisk",
      "Selective risk loss disabled (lambda7 = 0 throughout)",
      None, None, 0.0),
+    # Session 23 P0 #3: Contribution 3 ablation — trains a SEPARATE model
+    # with use_bar_sequences=False so the market encoder degenerates to the
+    # legacy scalar path (63-dim indicators instead of (L, d) bar sequences
+    # per timeframe per paper Eq.16). Comparing main vs this ablation
+    # quantifies the empirical lift from paper-faithful temporal modeling.
+    # Mechanism: when AblationTrainer sees ablation_flag="w/o_bar_sequences",
+    # the model constructor at ``_use_bar_sequences`` guard below receives
+    # False and builds with the legacy scalar encoder. The ablation_flag
+    # string is NOT consumed at forward-time — the switch is purely
+    # construction-time (different model, same config elsewhere).
+    ("w/o_bar_sequences",
+     "Bar-sequence market encoder disabled (legacy 63-dim scalar path, paper Eq.16 simplification)",
+     "w/o_bar_sequences", None, None),
 ]
 
 
@@ -117,9 +139,13 @@ class AblationTrainer(SAFEAlertTrainer):
         from models.safe_alert_net import FACTOR_CLASSES
 
         self.model.train()
+        # Include "Lvol" key because loss_dict always reports it. Paper-final
+        # runs set lambda_vol=0; lambda_vol>0 opts into the volatility
+        # extension.
         losses = {
             "loss": 0, "Ldir": 0, "Lret": 0, "Lfac": 0,
-            "Lsel": 0, "Lcal": 0, "Lfaith": 0, "Lrisk": 0
+            "Lsel": 0, "Lcal": 0, "Lfaith": 0, "Lrisk": 0,
+            "Lvol": 0,
         }
         count = 0
         self.optimizer.zero_grad()
@@ -132,6 +158,10 @@ class AblationTrainer(SAFEAlertTrainer):
             dir_labels   = batch["direction"].to(self.device)
             ret_labels   = batch["return"].to(self.device)
             fac_labels   = batch["factor"].to(self.device)
+            # Session 23 P0 #3: paper Eq.16 bar sequences when dataset emits them.
+            market_bars  = batch.get("market_bars")
+            if market_bars is not None:
+                market_bars = market_bars.to(self.device)
 
             # Forward with ablation flag
             outputs = self.model(
@@ -140,6 +170,8 @@ class AblationTrainer(SAFEAlertTrainer):
                 article_mask=article_mask,
                 article_meta_vec=article_meta,
                 ablation=self.ablation_flag,
+                symbol=self.symbol,
+                market_bars=market_bars,   # Session 23 P0 #3
             )
 
             # Faithfulness masked pass — skip for w/o_faithfulness (lambda6=0)
@@ -152,6 +184,8 @@ class AblationTrainer(SAFEAlertTrainer):
                         article_emb=article_emb,
                         article_mask=article_mask,
                         article_meta_vec=article_meta,
+                        symbol=self.symbol,
+                        market_bars=market_bars,   # Session 23 P0 #3
                     )
                     masked_dir_logits = masked_outputs["dir_logits"]
                 else:
@@ -173,6 +207,11 @@ class AblationTrainer(SAFEAlertTrainer):
                 else torch.zeros(market_feat.shape[0], FACTOR_CLASSES, device=self.device)
             )
 
+            # Optional volatility extension: forward vol labels from dataset
+            # to loss when present; inactive for paper-final lambda_vol=0.
+            vol_labels_t = batch.get("volatility")
+            if vol_labels_t is not None:
+                vol_labels_t = vol_labels_t.to(self.device)
             loss_dict = self.loss_fn(
                 dir_logits=outputs["dir_logits"],
                 dir_labels=dir_labels,
@@ -185,6 +224,9 @@ class AblationTrainer(SAFEAlertTrainer):
                 calibration_targets=dir_correct,
                 masked_dir_logits=masked_dir_logits,
                 article_mask=article_mask,
+                soft_gates=outputs.get("soft_gates"),  # Session 20 Fix 7
+                vol_pred=outputs.get("vol_pred"),       # optional volatility extension
+                vol_labels=vol_labels_t,                # optional volatility extension
             )
 
             total_loss = loss_dict["loss"]
@@ -209,7 +251,14 @@ class AblationTrainer(SAFEAlertTrainer):
 
     # Override validate to pass ablation flag
     @torch.no_grad()
-    def validate(self, val_loader) -> Dict[str, float]:
+    def validate(
+        self,
+        val_loader,
+        tau: Optional[float] = None,
+        gamma: Optional[float] = None,
+        temperature: Optional[float] = None,
+        compute_explanations: bool = True,
+    ) -> Dict[str, float]:
         import torch.nn.functional as F
 
         self.model.eval()
@@ -229,6 +278,17 @@ class AblationTrainer(SAFEAlertTrainer):
             article_meta = batch["article_metadata"].to(self.device)
             article_mask = batch["article_mask"].to(self.device)
             dir_labels   = batch["direction"].to(self.device)
+            # Session 23 P0 #3 + Session 24: thread bar sequences and
+            # volatility labels when the dataset emits them. Without this
+            # threading the ablation validate would crash under
+            # use_bar_sequences=True (model raises on missing market_bars)
+            # and silently drop the Lvol auxiliary loss.
+            market_bars  = batch.get("market_bars")
+            if market_bars is not None:
+                market_bars = market_bars.to(self.device)
+            vol_labels   = batch.get("volatility")
+            if vol_labels is not None:
+                vol_labels = vol_labels.to(self.device)
 
             outputs = self.model(
                 market_feat, horizon=self.horizon,
@@ -236,16 +296,20 @@ class AblationTrainer(SAFEAlertTrainer):
                 article_mask=article_mask,
                 article_meta_vec=article_meta,
                 ablation=self.ablation_flag,
+                symbol=self.symbol,
+                market_bars=market_bars,    # Session 23 P0 #3
             )
 
             has_articles = article_mask.any(dim=1).any()
-            if has_articles and self.loss_fn.lambda6 > 0:
+            if has_articles and compute_explanations and self.loss_fn.lambda6 > 0:
                 masked_outputs = self.model.forward_masked(
                     market_feat=market_feat,
                     horizon=self.horizon,
                     article_emb=article_emb,
                     article_mask=article_mask,
                     article_meta_vec=article_meta,
+                    symbol=self.symbol,
+                    market_bars=market_bars,    # Session 23 P0 #3
                 )
                 masked_dir_logits = masked_outputs["dir_logits"]
             else:
@@ -280,6 +344,9 @@ class AblationTrainer(SAFEAlertTrainer):
                 calibration_targets=dir_correct,
                 masked_dir_logits=masked_dir_logits,
                 article_mask=article_mask,
+                soft_gates=outputs.get("soft_gates"),  # Session 20 Fix 7
+                vol_pred=outputs.get("vol_pred"),       # optional volatility extension
+                vol_labels=vol_labels,                   # optional volatility extension
             )
 
             val_losses["loss"]    += loss_dict["loss"].item()
@@ -307,14 +374,17 @@ class AblationTrainer(SAFEAlertTrainer):
         all_dir_logits = np.concatenate(all_dir_logits)
 
         # Temperature scaling — fit on this split's logits (same protocol as main trainer)
-        temp_fit  = fit_temperature_scaling(all_dir_logits, all_dir_labels)
-        temperature = float(temp_fit["temperature"])
+        if temperature is None:
+            temp_fit = fit_temperature_scaling(all_dir_logits, all_dir_labels)
+            temperature = float(temp_fit["temperature"])
+        else:
+            temperature = float(temperature)
         all_dir_probs = apply_temperature_to_logits(all_dir_logits, temperature)
 
         from train_safe_alert import _TAU_PERCENTILE, _GAMMA_PERCENTILE
         _max_prob = all_dir_probs.max(axis=-1)
-        best_tau   = float(np.percentile(all_confidence, _TAU_PERCENTILE))
-        best_gamma = float(np.percentile(_max_prob, _GAMMA_PERCENTILE))
+        best_tau   = float(tau) if tau is not None else float(np.percentile(all_confidence, _TAU_PERCENTILE))
+        best_gamma = float(gamma) if gamma is not None else float(np.percentile(_max_prob, _GAMMA_PERCENTILE))
 
         macro_f1 = compute_macro_f1(all_dir_probs.argmax(axis=1), all_dir_labels)
         mcc      = compute_mcc(all_dir_probs.argmax(axis=1), all_dir_labels)
@@ -334,7 +404,11 @@ class AblationTrainer(SAFEAlertTrainer):
         alert_sortino = backtest.get("alert_sortino", 0.0)
         alert_calmar = backtest.get("alert_calmar", 0.0)
         alert_max_dd = backtest.get("alert_max_dd", 0.0)
-        score = compute_model_selection_score(macro_f1, mcc, ece, alert_sharpe)
+        score = compute_model_selection_score(
+            macro_f1, mcc, ece, alert_sharpe,
+            alert_coverage=backtest.get("alert_coverage", 0.0),
+            position_pnl=backtest.get("position_pnl", backtest.get("pnl", 0.0)),
+        )
         all_dir_preds = cal_preds
 
         ret_corr = (
@@ -463,12 +537,78 @@ def load_data(args):
         entity_sentiment = np.load(entity_path)
         print(f"[OK] Entity sentiment: {entity_path.name} {entity_sentiment.shape}")
 
-    return candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment
+    # Session 23 P0 #3 parity: load horizon-compatible bar sequences for
+    # paper Eq.16 whenever the full/most ablation variants use sequence mode.
+    market_bars = None
+    if getattr(args, "use_bar_sequences", True):
+        stale_market_bars = []
+        for candidate in [
+            emb_path_base / f"market_bars_{args.horizon}.npz",
+            emb_path_base / "market_bars.npz",
+        ]:
+            if not candidate.exists():
+                continue
+            with np.load(candidate) as loaded:
+                candidate_dict = {k: loaded[k] for k in loaded.files}
+            required_bar_keys = {f"bars_{tf}" for tf in ("1m", "5m", "15m", "1h", "4h")}
+            missing_bar_keys = required_bar_keys - set(candidate_dict)
+            if missing_bar_keys:
+                print(f"[WARN] Ignoring malformed market_bars cache {candidate.name}: "
+                      f"missing {sorted(missing_bar_keys)}")
+                continue
+            shape = candidate_dict["bars_1m"].shape
+            if shape[0] != len(candle_df):
+                stale_market_bars.append((candidate, shape[0]))
+                print(f"[WARN] Ignoring stale market_bars cache {candidate.name}: "
+                      f"N={shape[0]} != candles={len(candle_df)} for horizon={args.horizon}")
+                continue
+            if args.horizon != "1h":
+                meta_interval = candidate_dict.get("decision_interval_ns")
+                if meta_interval is None:
+                    raise ValueError(
+                        f"{candidate.name} was generated by an older precompute_market_bars.py "
+                        f"without decision_interval metadata. Non-1h bar caches previously used "
+                        f"a hard-coded +1h decision close and may be temporally misaligned. "
+                        f"Regenerate it with --decision-horizon {args.horizon}."
+                    )
+                ts_col = "timestamp" if "timestamp" in candle_df.columns else "datetime"
+                ts = pd.to_datetime(candle_df[ts_col], utc=True, errors="coerce").dropna().sort_values()
+                if len(ts) >= 2:
+                    expected_ns = int(ts.diff().dropna().median().value)
+                    actual_ns = int(np.asarray(meta_interval).reshape(-1)[0])
+                    if abs(actual_ns - expected_ns) > max(1, int(0.1 * expected_ns)):
+                        raise ValueError(
+                            f"{candidate.name} decision_interval_ns={actual_ns} does not match "
+                            f"horizon={args.horizon} candle interval {expected_ns}. Regenerate "
+                            f"market_bars with --decision-horizon {args.horizon}."
+                        )
+            market_bars = candidate_dict
+            print(f"[OK] Market bars: {candidate.name} — "
+                  f"5 TFs x {shape[0]} candles x {shape[1]} bars x {shape[2]} features")
+            break
+        if market_bars is None:
+            if stale_market_bars:
+                stale_desc = ", ".join(f"{p.name}:N={n}" for p, n in stale_market_bars)
+                raise ValueError(
+                    f"No market_bars cache matches horizon={args.horizon} "
+                    f"(expected N={len(candle_df)}; stale: {stale_desc}). "
+                    f"Run precompute_market_bars.py with --decision-horizon {args.horizon}."
+                )
+            print(f"[WARN] use_bar_sequences=True but no market_bars cache found in {emb_path_base}; "
+                  "falling back to scalar market features.")
+            args.use_bar_sequences = False
+
+    return candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment, market_bars
 
 
 def build_loaders(candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment,
-                  args, horizon):
-    """Build SAFEAlertDataset and temporal train/val/test DataLoaders."""
+                  market_bars, args, horizon):
+    """Build SAFEAlertDataset and temporal train/val/test DataLoaders.
+
+    Returns (train_loader, val_loader, test_loader, dataset) — the dataset
+    handle is needed by the caller to pass into trainer.fit(dataset=...) so
+    checkpoints carry the preprocessing state (P0 #1 fix applied to ablation).
+    """
     from torch.utils.data import Subset, DataLoader
 
     dataset = SAFEAlertDataset(
@@ -481,11 +621,20 @@ def build_loaders(candle_df, embeddings, articles_df, precomp, factor_labels, en
         precomputed_features=precomp,
         factor_labels=factor_labels,
         entity_sentiment=entity_sentiment,
+        market_bars=market_bars if getattr(args, "use_bar_sequences", True) else None,
     )
 
     train_size = int(0.7 * len(dataset))
     val_size   = int(0.15 * len(dataset))
     test_start = train_size + val_size
+
+    # P0 #2 parity: ablation MUST z-score on the train split only so every
+    # variant (full model + ablation variants) sees identical preprocessing.
+    # Without this, variants trained on raw features while the full model
+    # (when run via train_safe_alert.py) trained on z-scored → unfair
+    # ablation comparison that exaggerated the contribution of whichever
+    # module was present in the normalized condition.
+    dataset.fit_market_scaler(range(0, train_size))
 
     train_set = Subset(dataset, range(0, train_size))
     val_set   = Subset(dataset, range(train_size, train_size + val_size))
@@ -493,24 +642,48 @@ def build_loaders(candle_df, embeddings, articles_df, precomp, factor_labels, en
 
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
                               num_workers=0)
-    val_loader   = DataLoader(val_set, batch_size=args.batch_size, num_workers=0)
-    test_loader  = DataLoader(test_set, batch_size=args.batch_size, num_workers=0)
+    val_loader   = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    test_loader  = DataLoader(test_set, batch_size=args.batch_size, shuffle=False, num_workers=0)
 
     print(f"[OK] Train={len(train_set)}, Val={len(val_set)}, Test={len(test_set)} samples")
-    return train_loader, val_loader, test_loader
+    print(f"[OK] Market scaler fit on train split (shared across all ablation variants).")
+    return train_loader, val_loader, test_loader, dataset
 
 
 # ── Run a single variant ───────────────────────────────────────────────────────
 
 def run_variant(variant_name: str, ablation_flag: Optional[str],
                 lambda6_force: Optional[float], lambda7_force: Optional[float],
-                train_loader, val_loader, test_loader, args) -> Dict:
-    """Train one ablation variant and return its final val/test metrics."""
+                train_loader, val_loader, test_loader, args, dataset=None) -> Dict:
+    """Train one ablation variant and return its final val/test metrics.
+
+    dataset: Pass-through to trainer.fit(dataset=...) so the per-variant
+    checkpoint carries the shared preprocessing state (P0 #1 parity).
+    """
     print(f"\n{'='*60}")
     print(f"  VARIANT: {variant_name}")
     print(f"{'='*60}")
 
-    model = SAFEAlertNet(market_dim=63, has_news=True, K_15m=3, K_1h=4, K_4h=5)
+    # Session 23 P0 #3: the w/o_bar_sequences variant trains a SEPARATE
+    # model with use_bar_sequences=False so the market encoder uses the
+    # legacy scalar path. All other variants use the paper-faithful
+    # sequence mode (default True) so the ablation isolates one module
+    # at a time rather than comparing against a partially-crippled baseline.
+    _use_bar_sequences = (ablation_flag != "w/o_bar_sequences") and getattr(
+        args, "use_bar_sequences", True
+    )
+
+    # Session 26: use YAML top_k (imported from train_safe_alert._TOP_K_MAP)
+    # + explicit K_24h + n_factors to match train_safe_alert.py consistently.
+    model = SAFEAlertNet(
+        market_dim=63, has_news=True,
+        K_15m=_train._TOP_K_MAP["15m"], K_1h=_train._TOP_K_MAP["1h"],
+        K_4h=_train._TOP_K_MAP["4h"],   K_24h=_train._TOP_K_MAP["24h"],
+        n_factors=_FACTOR_CLASSES,
+        use_bar_sequences=_use_bar_sequences,
+        bar_seq_len=getattr(args, "bar_seq_len", 20),
+        bar_feat_dim=getattr(args, "bar_feat_dim", 10),
+    )
     K_h   = model.K_h_map.get(args.horizon, 8)
 
     trainer = AblationTrainer(
@@ -534,11 +707,20 @@ def run_variant(variant_name: str, ablation_flag: Optional[str],
         epochs=args.epochs,
         checkpoint_dir=ablation_dir,
         early_stopping_patience=max(5, _ES_PATIENCE // 2),
+        dataset=dataset,   # P0 #1: preprocessing state in every ablation checkpoint
     )
 
-    # Collect final validation and test metrics
+    # Tune τ/γ/T on val, FREEZE for test (previously test refit its own threshold,
+    # producing optimistic test metrics that bounced up for every variant —
+    # masking the true effect of ablating a module). Proper protocol matches
+    # train_safe_alert.py walk-forward evaluator.
     final_val = trainer.validate(val_loader)
-    final_test = trainer.validate(test_loader)
+    final_test = trainer.validate(
+        test_loader,
+        tau=final_val["tau"],
+        gamma=final_val["gamma"],
+        temperature=final_val["temperature"],
+    )
     final_test.update({f"val_{k}": v for k, v in final_val.items()})
 
     gc.collect()
@@ -550,13 +732,26 @@ def run_variant(variant_name: str, ablation_flag: Optional[str],
 
 # ── Full model (no ablation) ───────────────────────────────────────────────────
 
-def run_full_model(train_loader, val_loader, test_loader, args) -> Dict:
+def run_full_model(train_loader, val_loader, test_loader, args, dataset=None) -> Dict:
     """Train the full SAFE-Alert model (all modules enabled)."""
     print(f"\n{'='*60}")
     print(f"  FULL MODEL (all modules enabled)")
     print(f"{'='*60}")
 
-    model = SAFEAlertNet(market_dim=63, has_news=True, K_15m=3, K_1h=4, K_4h=5)
+    # Session 26: YAML-aware K_h + explicit K_24h + n_factors for parity
+    # with train_safe_alert.py's model construction.
+    model = SAFEAlertNet(
+        market_dim=63, has_news=True,
+        K_15m=_train._TOP_K_MAP["15m"], K_1h=_train._TOP_K_MAP["1h"],
+        K_4h=_train._TOP_K_MAP["4h"],   K_24h=_train._TOP_K_MAP["24h"],
+        n_factors=_FACTOR_CLASSES,
+        # Session 23 P0 #3: full model uses paper-faithful bar sequences
+        # (Eq.16) when available; ablation 'w/o_bar_sequences' is handled
+        # in the other branch of this file.
+        use_bar_sequences=getattr(args, "use_bar_sequences", True),
+        bar_seq_len=getattr(args, "bar_seq_len", 20),
+        bar_feat_dim=getattr(args, "bar_feat_dim", 10),
+    )
     K_h   = model.K_h_map.get(args.horizon, 8)
 
     trainer = SAFEAlertTrainer(
@@ -576,10 +771,17 @@ def run_full_model(train_loader, val_loader, test_loader, args) -> Dict:
         epochs=args.epochs,
         checkpoint_dir=full_dir,
         early_stopping_patience=max(5, _ES_PATIENCE // 2),
+        dataset=dataset,   # P0 #1 parity with ablation variants
     )
 
+    # Frozen val thresholds for test evaluation — same protocol as variants.
     final_val = trainer.validate(val_loader)
-    final_test = trainer.validate(test_loader)
+    final_test = trainer.validate(
+        test_loader,
+        tau=final_val["tau"],
+        gamma=final_val["gamma"],
+        temperature=final_val["temperature"],
+    )
     final_test.update({f"val_{k}": v for k, v in final_val.items()})
 
     gc.collect()
@@ -641,11 +843,45 @@ def main():
     default_data = service_root / "training_data"
     parser.add_argument("--data_path",       type=Path,  default=default_data)
     parser.add_argument("--embeddings_path", type=Path,  default=default_data)
+    parser.add_argument("--use_bar_sequences", dest="use_bar_sequences",
+                        action="store_true", default=None,
+                        help="Use paper Eq.16 bar-sequence market encoder.")
+    parser.add_argument("--no-use_bar_sequences", dest="use_bar_sequences",
+                        action="store_false",
+                        help="Force legacy scalar market encoder for debugging.")
 
     # Which variants to run (default: all)
     parser.add_argument("--variants", nargs="*", default=None,
                         help="Subset of variant names to run (default: all 7 + full model)")
+    parser.add_argument("--config", type=Path,
+                        default=Path(__file__).parent / "train_config_research_best.yaml",
+                        help="YAML config (same as train_safe_alert.py). Ablation "
+                             "honours the same hyperparameters so results are "
+                             "directly comparable to the full-model run.")
     args = parser.parse_args()
+
+    # Session 26 — apply YAML overrides to train_safe_alert module-level
+    # constants so _TOP_K_MAP / λ schedule / faith_margin / etc. used by
+    # SAFEAlertTrainer + AblationTrainer here match the full trainer.
+    # Without this, run_ablation.py would silently use module defaults
+    # even when user edited YAML.
+    try:
+        import yaml as _yaml
+        if args.config and args.config.exists():
+            with open(args.config) as _f:
+                _cfg = _yaml.safe_load(_f) or {}
+            _train._apply_config_overrides(_cfg)
+            if args.use_bar_sequences is None:
+                args.use_bar_sequences = bool(_cfg.get("use_bar_sequences", True))
+            print(f"[CONFIG] Loaded {args.config}")
+        else:
+            _train._apply_config_overrides({})   # uses defaults
+            if args.use_bar_sequences is None:
+                args.use_bar_sequences = True
+    except Exception as _e:
+        print(f"[CONFIG WARN] Could not apply config overrides: {_e}")
+        if args.use_bar_sequences is None:
+            args.use_bar_sequences = True
 
     output_path = args.output or (args.artifact_dir / "ablation_results.json")
 
@@ -655,11 +891,13 @@ def main():
     print(f"  Epochs : {args.epochs}")
     print(f"  Device : {args.device}")
 
-    # Load shared data (loaded once, reused across all variants)
-    candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment = load_data(args)
-    train_loader, val_loader, test_loader = build_loaders(
+    # Load shared data (loaded once, reused across all variants).
+    # Dataset handle is returned so every trainer.fit() can snapshot its
+    # scaler/return-scale state into the variant checkpoint (P0 #1 parity).
+    candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment, market_bars = load_data(args)
+    train_loader, val_loader, test_loader, dataset = build_loaders(
         candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment,
-        args, args.horizon
+        market_bars, args, args.horizon
     )
 
     results: Dict[str, Dict] = {}
@@ -669,7 +907,9 @@ def main():
 
     # --- Full model first (baseline reference) ---
     if requested is None or "full_model" in requested:
-        results["full_model"] = run_full_model(train_loader, val_loader, test_loader, args)
+        results["full_model"] = run_full_model(
+            train_loader, val_loader, test_loader, args, dataset=dataset,
+        )
 
     # --- Ablation variants ---
     for (variant_name, description, ablation_flag, lambda6_force, lambda7_force) in ABLATION_VARIANTS:
@@ -678,7 +918,7 @@ def main():
         print(f"\n[INFO] {description}")
         results[variant_name] = run_variant(
             variant_name, ablation_flag, lambda6_force, lambda7_force,
-            train_loader, val_loader, test_loader, args
+            train_loader, val_loader, test_loader, args, dataset=dataset,
         )
 
     # --- Print summary ---
