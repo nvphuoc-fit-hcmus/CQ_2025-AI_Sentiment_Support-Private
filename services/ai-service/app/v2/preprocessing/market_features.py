@@ -398,60 +398,6 @@ _TF_PARAMS = [
 _MIN_ROWS_PER_TF = [6, 15, 28, 40, 60]  # minimum rows needed per scale
 
 
-def extract_multiframe_market_features(df_1h: pd.DataFrame) -> np.ndarray:
-    """
-    Eq.16-19: Extract true 5-scale market features from 1h-base candles.
-
-    Input data is 1h candles (NOT 1m), so resampling to sub-hour timeframes
-    is meaningless — all sub-1h resamples return identical data.
-
-    Fix: compute the same 12 indicators with 5 different period scales
-    (short→long), each representing a distinct temporal resolution:
-      Scale 0 ≈  4h context  (periods: RSI_4,  MACD 3/6/2)
-      Scale 1 ≈ 12h context  (periods: RSI_8,  MACD 6/13/4)
-      Scale 2 ≈ 24h context  (periods: RSI_14, MACD 12/26/9)  ← standard
-      Scale 3 ≈ 72h context  (periods: RSI_21, MACD 16/34/9)
-      Scale 4 ≈ 168h context (periods: RSI_34, MACD 26/52/9)
-
-    Returns: np.ndarray of shape (63,)
-      - 5 scales × 12 indicators = 60 features
-      - 3 cross-scale aggregate features = 3 features
-      - Total: 63 features, all real data, no zero-padding
-    """
-    result = []
-    scale_rsi = []  # collect RSI values for cross-scale aggregate
-
-    for scale_idx, params in enumerate(_TF_PARAMS):
-        min_rows = _MIN_ROWS_PER_TF[scale_idx]
-        if len(df_1h) < min_rows:
-            result.append(np.zeros(12, dtype=np.float32))
-            scale_rsi.append(50.0)
-            continue
-
-        feats = _compute_tf_features(df_1h, *params)
-        result.append(feats)
-        scale_rsi.append(float(feats[0]))  # RSI is index 0
-
-    # Cross-scale aggregate features (3 dims = indices 60-62)
-    # [60] Mean RSI across all 5 scales
-    agg_rsi = float(np.mean(scale_rsi))
-
-    # [61] Momentum: RSI long-scale minus RSI short-scale (trend strength)
-    agg_momentum = float(scale_rsi[-1] - scale_rsi[0])  # scale4 - scale0
-
-    # [62] Volatility ratio: std_short / std_long (normalised)
-    std_short = float(result[0][11])  # scale0 std
-    std_long  = float(result[4][11])  # scale4 std
-    agg_vol_ratio = std_short / (std_long + 1e-8)
-    # Clamp to reasonable range to prevent outliers
-    agg_vol_ratio = float(np.clip(agg_vol_ratio, 0.0, 10.0))
-
-    result.append(np.array([agg_rsi, agg_momentum, agg_vol_ratio], dtype=np.float32))
-
-    features = np.concatenate(result, dtype=np.float32)  # (63,)
-    return features[:63].astype(np.float32)
-
-
 # ──────────────────────────────────────────────────────────────
 # MARKET REGIME
 # ──────────────────────────────────────────────────────────────

@@ -30,6 +30,12 @@ TRANSACTION_COST = 0.001  # 0.1% per trade (PDF Section 4.2.4)
 SLIPPAGE = 0.0005         # 0.05% slippage per trade (PDF Section 4.2.4)
 SHARPE_RF = 0.02          # Risk-free rate 2%
 
+# Annualization for 1-hour crypto candles: 24 × 365 = 8,760 periods/year.
+# Previously this module used 252 (equities trading-day convention), which
+# understated annualized Sharpe/Sortino by √(8760/252) ≈ 5.9× for the
+# hourly-returns stream on which we actually run backtests.
+PERIODS_PER_YEAR = 8760
+
 
 def _find_checkpoint(artifact_dir: Path, symbol: str, horizon: str) -> Optional[Path]:
     symbol = symbol.lower()
@@ -75,59 +81,118 @@ def load_model(artifact_dir: Path, symbol: str, horizon: str, device: str = "cpu
         checkpoint = torch.load(ckpt_path, map_location=device)
 
     # CRITICAL: architecture must EXACTLY match training config in train_safe_alert.py main()
-    # train uses: SAFEAlertNet(market_dim=63, has_news=True, K_15m=3, K_1h=4, K_4h=5)
-    # article_dim=128 (internal encoding dim, NOT FinBERT 768 — that's input size)
+    # Session 26: explicit K_24h + n_factors to prevent silent drift from
+    # default changes. K values match the training-time YAML top_k block.
+    # If the checkpoint was trained with custom K, load via the checkpoint's
+    # `K_h` field (single horizon value) — future work: save full K_h_map.
+    from models.safe_alert_net import FACTOR_CLASSES as _FCL
     model = SAFEAlertNet(
         market_dim=63,
         article_dim=128,    # internal encoding dim (matches training default)
         has_news=True,
-        K_15m=3,            # matches train_safe_alert.py main() K_15m=3
-        K_1h=4,             # matches train_safe_alert.py main() K_1h=4
-        K_4h=5,             # matches train_safe_alert.py main() K_4h=5
+        K_15m=3, K_1h=4, K_4h=5, K_24h=8,
+        n_factors=_FCL,
     )
 
+    # strict=False keeps backtests tolerant to checkpoint schema drift while
+    # still loading every matching layer. Any mismatch is logged below.
     if "model_state" in checkpoint:
-        model.load_state_dict(checkpoint["model_state"])
+        missing, unexpected = model.load_state_dict(checkpoint["model_state"], strict=False)
     else:
-        model.load_state_dict(checkpoint)
+        missing, unexpected = model.load_state_dict(checkpoint, strict=False)
+    if missing or unexpected:
+        import warnings as _w
+        _w.warn(
+            f"load_state_dict had missing={list(missing)[:5]} unexpected={list(unexpected)[:5]} "
+            "(showing first 5). Checkpoint schema may differ from current model.",
+            RuntimeWarning, stacklevel=2,
+        )
 
     model.to(device)
     model.eval()
+
+    # P0 #1: stash preprocessing state on the model so the backtest loop can
+    # apply the same z-score normalization the training pipeline used. Prior
+    # to this fix backtest silently fed raw features into a model trained on
+    # normalized features, invalidating every metric.
+    preproc = checkpoint.get("preprocessing_state") if isinstance(checkpoint, dict) else None
+    if preproc is not None and preproc.get("market_feature_mean") is not None:
+        model._market_feature_mean = torch.as_tensor(preproc["market_feature_mean"]).float().to(device)
+        model._market_feature_std  = torch.as_tensor(preproc["market_feature_std"]).float().to(device)
+        model._market_feature_clip = float(preproc.get("market_feature_clip", 8.0))
+        print(f"[OK] Loaded preprocessing state from checkpoint "
+              f"(clip={model._market_feature_clip}, mean_norm={model._market_feature_mean.abs().mean():.4f})")
+    else:
+        model._market_feature_mean = None
+        model._market_feature_std  = None
+        model._market_feature_clip = 8.0
+        import warnings as _warnings
+        _warnings.warn(
+            f"[backtest] Checkpoint {ckpt_path.name} has NO preprocessing_state "
+            f"(pre-P0#1 artifact). Backtest will feed RAW features to a model "
+            f"trained on z-score normalized features. Retrain to refresh.",
+            RuntimeWarning, stacklevel=2,
+        )
+    model._ckpt_temperature = float(
+        checkpoint.get("temperature", 1.0) if isinstance(checkpoint, dict) else 1.0
+    )
 
     print(f"[OK] Model loaded ({ckpt_path.name})")
     return model
 
 
 def compute_metrics(returns: np.ndarray, daily_returns: np.ndarray = None):
-    """Compute backtest metrics per PDF specs."""
+    """Compute backtest metrics per PDF specs.
 
-    total_return = np.prod(1 + returns) - 1 if len(returns) > 0 else 0
-    annual_return = (1 + total_return) ** (252 / max(len(returns), 1)) - 1
+    Fixes applied here (all three affected every reported backtest number):
+      1. Sortino downside-deviation formula now matches the Sortino & Price (1994)
+         definition (sqrt of mean squared negative returns), not std() of a
+         zero-padded negative sequence which zeroed-out the mean and shrank the
+         denominator by ~√2 — inflating Sortino.
+      2. Annualisation factor switched from 252 (equities trading-day convention)
+         to ``PERIODS_PER_YEAR`` = 8,760 — correct for the hourly crypto returns
+         stream this module is actually fed.
+      3. ``np.std`` defaults to population std (ddof=0); explicit ``ddof=1``
+         gives the sample std expected in finance (Bessel correction).
+    """
+    if len(returns) == 0:
+        return {
+            "total_return": 0.0, "annual_return": 0.0, "annual_vol": 0.0,
+            "sharpe": 0.0, "sortino": 0.0, "max_dd": 0.0, "calmar": 0.0,
+            "win_rate": 0.0,
+        }
 
-    # Volatility
-    std_return = np.std(returns) if len(returns) > 0 else 0
-    annual_vol = std_return * np.sqrt(252)
+    total_return  = float(np.prod(1.0 + returns) - 1.0)
+    annual_return = (1.0 + total_return) ** (PERIODS_PER_YEAR / max(len(returns), 1)) - 1.0
+
+    # Volatility (sample std with Bessel correction when sample is non-trivial).
+    std_return = float(np.std(returns, ddof=1 if len(returns) > 1 else 0))
+    annual_vol = std_return * np.sqrt(PERIODS_PER_YEAR)
 
     # Sharpe
-    sharpe = (annual_return - SHARPE_RF) / (annual_vol + 1e-6) if annual_vol > 0 else 0
+    sharpe = (annual_return - SHARPE_RF) / (annual_vol + 1e-6) if annual_vol > 0 else 0.0
 
-    # Sortino (downside deviation)
-    downside = np.minimum(returns, 0)
-    downside_std = np.std(downside) if len(downside) > 0 else 0
-    downside_vol = downside_std * np.sqrt(252)
-    sortino = (annual_return - SHARPE_RF) / (downside_vol + 1e-6) if downside_vol > 0 else 0
+    # Sortino — use the √(E[min(r,0)²]) definition (Sortino & Price 1994).
+    # ``np.std(np.minimum(returns, 0))`` is WRONG: the zero-pad inflates the
+    # mean toward 0 and the resulting std is √2 smaller than the true downside
+    # deviation, giving an optimistic Sortino.
+    neg = np.minimum(returns, 0.0)
+    downside_dev = float(np.sqrt(np.mean(neg * neg)))
+    downside_vol = downside_dev * np.sqrt(PERIODS_PER_YEAR)
+    sortino = (annual_return - SHARPE_RF) / (downside_vol + 1e-6) if downside_vol > 0 else 0.0
 
     # Cumulative returns & max drawdown
-    cumret = np.cumprod(1 + returns)
+    cumret = np.cumprod(1.0 + returns)
     running_max = np.maximum.accumulate(cumret)
     drawdown = (cumret - running_max) / running_max
-    max_dd = np.min(drawdown) if len(drawdown) > 0 else 0
+    max_dd = float(np.min(drawdown)) if len(drawdown) > 0 else 0.0
 
     # Calmar (annual return / abs(max_dd))
     calmar = annual_return / (abs(max_dd) + 1e-6)
 
-    # Win rate
-    win_rate = np.mean(returns > 0) if len(returns) > 0 else 0
+    # Win rate (exclude zero-return periods so flat HOLD days don't dilute).
+    nonzero = returns[returns != 0.0]
+    win_rate = float(np.mean(nonzero > 0)) if len(nonzero) > 0 else 0.0
 
     return {
         "total_return": total_return,
@@ -141,10 +206,90 @@ def compute_metrics(returns: np.ndarray, daily_returns: np.ndarray = None):
     }
 
 
+def walk_forward_metrics(returns: np.ndarray, n_windows: int = 5) -> dict:
+    """Walk-forward (rolling-window) performance evaluation per PDF Section 4.2.3.
+
+    Splits the PnL stream into n_windows non-overlapping consecutive chunks,
+    computes standard metrics on each chunk, and reports mean±std across
+    chunks plus the per-window table. This addresses the paper's requirement
+    for temporal robustness evaluation — a single-window Sharpe can be
+    inflated by a favourable regime, while mean±std across windows reveals
+    whether performance is stable over time.
+
+    Non-overlapping windows preserve the independence assumption used for the
+    Diebold–Mariano-style std; overlapping rolling windows would bias it.
+
+    Args:
+        returns: 1-D array of per-period PnL values.
+        n_windows: Number of equal-size chunks (default 5 — 20% per chunk).
+
+    Returns:
+        dict with keys:
+          - ``per_window``: list of dicts (one compute_metrics() output per chunk)
+          - ``summary``: {metric_mean, metric_std} for each metric
+          - ``n_windows``, ``window_size``
+    """
+    if len(returns) == 0 or n_windows <= 0:
+        return {"per_window": [], "summary": {}, "n_windows": 0, "window_size": 0}
+
+    # Minimum window length — if data is too short, reduce n_windows rather
+    # than producing degenerate single-sample windows.
+    effective_windows = min(n_windows, max(1, len(returns) // 20))
+    window_size = len(returns) // effective_windows
+
+    per_window = []
+    for i in range(effective_windows):
+        start = i * window_size
+        end = (i + 1) * window_size if i < effective_windows - 1 else len(returns)
+        chunk = returns[start:end]
+        metrics = compute_metrics(chunk)
+        metrics["window_idx"] = i
+        metrics["window_start"] = int(start)
+        metrics["window_end"] = int(end)
+        per_window.append(metrics)
+
+    # Aggregate mean / std across windows for each scalar metric.
+    if per_window:
+        metric_keys = [k for k in per_window[0].keys()
+                       if k not in {"window_idx", "window_start", "window_end"}]
+        summary = {}
+        for k in metric_keys:
+            values = np.array([m[k] for m in per_window], dtype=np.float64)
+            summary[f"{k}_mean"] = float(np.mean(values))
+            summary[f"{k}_std"] = float(np.std(values))
+    else:
+        summary = {}
+
+    return {
+        "per_window": per_window,
+        "summary": summary,
+        "n_windows": effective_windows,
+        "window_size": int(window_size),
+    }
+
+
+def _validate_policy(policy: dict, source: str) -> dict:
+    """Sanity-check a policy JSON. Rejects out-of-range τ/γ/T — a corrupt policy
+    silently produces either zero alerts (τ>1) or all alerts (τ<0), either of
+    which invalidates the entire backtest."""
+    if not isinstance(policy, dict):
+        raise ValueError(f"Policy from {source} must be a JSON object, got {type(policy).__name__}")
+    tau = float(policy.get("tau", policy.get("tau_h", 0.5)))
+    gamma = float(policy.get("gamma", policy.get("gamma_h", 0.5)))
+    if not (0.0 <= tau <= 1.0):
+        raise ValueError(f"Policy {source}: tau={tau} outside [0,1] — corrupt policy file.")
+    if not (0.0 <= gamma <= 1.0):
+        raise ValueError(f"Policy {source}: gamma={gamma} outside [0,1] — corrupt policy file.")
+    T = float(policy.get("temperature", 1.0))
+    if not (0.05 <= T <= 20.0):
+        raise ValueError(f"Policy {source}: temperature={T} outside [0.05,20] — corrupt policy file.")
+    return policy
+
+
 def _load_policy(artifact_dir: Path, symbol: str, horizon: str, policy_json: Optional[Path]) -> Optional[dict]:
     if policy_json is not None and policy_json.exists():
         with open(policy_json, "r") as f:
-            return json.load(f)
+            return _validate_policy(json.load(f), str(policy_json))
 
     # Try common policy filenames in artifact_dir
     candidates = [
@@ -156,7 +301,7 @@ def _load_policy(artifact_dir: Path, symbol: str, horizon: str, policy_json: Opt
     for path in candidates:
         if path.exists():
             with open(path, "r") as f:
-                return json.load(f)
+                return _validate_policy(json.load(f), str(path))
     return None
 
 
@@ -166,35 +311,89 @@ def _softmax(logits: np.ndarray) -> np.ndarray:
     return exp / np.sum(exp, axis=-1, keepdims=True)
 
 
-def simulate_trades(signals: np.ndarray, returns: np.ndarray):
-    """
-    Simulate trading based on signals.
+def simulate_trades(signals: np.ndarray, returns: np.ndarray, allow_short: bool = True):
+    """PnL simulator with consistent long+short semantics.
 
-    signals: (N,) array of {1=BUY, 0=HOLD, -1=SELL}
-    returns: (N,) array of next-candle returns
+    signals: (N,) {+1=LONG signal, 0=HOLD, -1=SHORT signal}
+    returns: (N,) next-period market returns aligned with signals
+    allow_short:
+        • True  (default) — opens SHORT on sig=-1, earning -ret while short.
+                             Matches metrics_safe_alert.mini_backtest, which is
+                             what early stopping / policy search use. This
+                             keeps validation and final backtest on the SAME
+                             strategy (was Bug #4 before fix).
+        • False — long-only fallback: sig=-1 CLOSES any open long but never
+                  opens a short. Useful for spot-only deployments.
+
+    Returns:
+        pnl: (N,) per-step net PnL = market return earned that step by the
+             active position minus entry/exit transaction costs when the
+             position changed at the end of the step.
+
+    Sign / cost invariants enforced:
+      • len(pnl) == len(signals)                        (no off-by-one)
+      • transaction cost is applied ONCE per open and ONCE per close
+      • mark-to-market on step i uses returns[i] (return over the step)
+      • long position earns +ret; short position earns -ret
     """
-    position = 0  # 0=flat, 1=long
-    pnl_list = []
+    signals = np.asarray(signals)
+    returns = np.asarray(returns)
+    if signals.shape != returns.shape:
+        raise ValueError(
+            f"simulate_trades: signals.shape={signals.shape} != returns.shape={returns.shape} "
+            f"— callers must align these before simulation (len must match)."
+        )
+    if signals.ndim != 1:
+        raise ValueError(f"simulate_trades: signals must be 1-D, got {signals.ndim}-D.")
+
+    # position: 0 = flat, +1 = long, -1 = short
+    position = 0
+    pnl = np.zeros(len(signals), dtype=np.float64)
+    cost = TRANSACTION_COST + SLIPPAGE
 
     for i, sig in enumerate(signals):
-        ret = returns[i] if i < len(returns) else 0
+        ret = float(returns[i]) if i < len(returns) else 0.0
+        step_pnl = 0.0
 
-        # Entry signal
-        if sig == 1 and position == 0:
-            position = 1
-            pnl_list.append(-(TRANSACTION_COST + SLIPPAGE))  # Entry cost + slippage
-        # Exit signal
-        elif sig == -1 and position == 1:
-            position = 0
-            pnl_list.append(-(TRANSACTION_COST + SLIPPAGE))  # Exit cost + slippage
+        # Mark-to-market: PnL earned during step i by whatever position was
+        # held from step i-1's close. LONG earns +ret, SHORT earns -ret.
+        if position != 0:
+            step_pnl += position * ret
 
-        # Mark-to-market P&L while holding a long position
-        if position == 1:
-            pnl_list.append(ret)
-        elif sig == 0:
-            pnl_list.append(0.0)
+        # Act on the signal at END of this step. An entry or close charges
+        # one cost event. A reversal (long→short or short→long) = close + open
+        # = 2 × cost, which is physically accurate.
+        if sig == 1:
+            if position == 0:
+                step_pnl -= cost
+                position = 1
+            elif position == -1:
+                step_pnl -= 2.0 * cost  # close short + open long
+                position = 1
+            # position == 1 already → no-op
+        elif sig == -1:
+            if allow_short:
+                if position == 0:
+                    step_pnl -= cost
+                    position = -1
+                elif position == 1:
+                    step_pnl -= 2.0 * cost  # close long + open short
+                    position = -1
+                # position == -1 already → no-op
+            else:
+                # Long-only fallback: sig=-1 only CLOSES an open long.
+                if position == 1:
+                    step_pnl -= cost
+                    position = 0
+        # sig == 0 → HOLD: no position change, already marked-to-market above.
 
-    return np.array(pnl_list)
+        pnl[i] = step_pnl
+
+    assert len(pnl) == len(signals), (
+        f"simulate_trades internal invariant broken: len(pnl)={len(pnl)} "
+        f"!= len(signals)={len(signals)}"
+    )
+    return pnl
 
 
 def _resolve_data_dir(data_dir: Path) -> Path:
@@ -204,23 +403,37 @@ def _resolve_data_dir(data_dir: Path) -> Path:
 
 
 def _select_candle_file(data_dir: Path, symbol: str, horizon: str) -> Path:
+    """Pick the candle CSV for (symbol, horizon). If multiple viable files
+    exist, prefer the horizon-specific OHLCV and log the ambiguity so users
+    know which one was chosen. Raise if none of the candidates exist."""
     symbol_upper = symbol.upper()
-    if horizon.lower() == "1h":
-        v2 = data_dir / f"{symbol_upper}_1h_ohlcv.csv"
-        if v2.exists():
-            return v2
-    if horizon.lower() == "4h":
-        v2 = data_dir / f"{symbol_upper}_4h_ohlcv.csv"
-        if v2.exists():
-            return v2
-    # Fallbacks
-    candles_max = data_dir / "candles_max.csv"
-    if candles_max.exists():
-        return candles_max
-    return data_dir / f"{symbol.lower()}_training_dataset_v2.csv"
+    preferred_by_horizon = {
+        "1h":  data_dir / f"{symbol_upper}_1h_ohlcv.csv",
+        "4h":  data_dir / f"{symbol_upper}_4h_ohlcv.csv",
+        "15m": data_dir / f"{symbol_upper}_15m_ohlcv.csv",
+        "24h": data_dir / f"{symbol_upper}_1d_ohlcv.csv",
+    }
+    fallback_max = data_dir / "candles_max.csv"
+    fallback_training = data_dir / f"{symbol.lower()}_training_dataset_v2.csv"
+
+    ordered = [preferred_by_horizon.get(horizon.lower()), fallback_max, fallback_training]
+    ordered = [p for p in ordered if p is not None]
+    existing = [p for p in ordered if p.exists()]
+    if not existing:
+        raise FileNotFoundError(
+            f"No candle file found for symbol={symbol} horizon={horizon} in {data_dir}. "
+            f"Tried: {[str(p.name) for p in ordered]}"
+        )
+    chosen = existing[0]
+    if len(existing) > 1:
+        others = [p.name for p in existing[1:]]
+        print(f"[WARN] _select_candle_file: multiple candidates exist {others}, "
+              f"using highest-priority: {chosen.name}", flush=True)
+    return chosen
 
 
-def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str, policy_json: Optional[Path] = None):
+def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
+             policy_json: Optional[Path] = None, allow_short: bool = True):
     """Run backtest on test set with REAL model predictions."""
 
     print("\n" + "="*70)
@@ -281,6 +494,19 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str, poli
     except Exception as e:
         raise RuntimeError(f"[ERROR] Cannot load dataset: {e}. Ensure training data exists.")
 
+    # P0 #1: rehydrate training preprocessing state onto the dataset so that
+    # Dataset._normalize_market_features mirrors what training did — test
+    # samples are z-scored using the exact (mean, std, clip) the trainer fit.
+    if hasattr(model, "_market_feature_mean") and model._market_feature_mean is not None:
+        dataset.load_preprocessing_state({
+            "market_feature_mean": model._market_feature_mean.cpu(),
+            "market_feature_std":  model._market_feature_std.cpu(),
+            "market_feature_clip": model._market_feature_clip,
+        })
+        print("[OK] Dataset preprocessing state rehydrated from checkpoint.")
+    else:
+        print("[WARN] Dataset has no scaler — backtest may use raw features (distribution mismatch).")
+
     # Get test set (last 15% of data, temporal split)
     n_total = len(dataset)
     n_test = int(n_total * 0.15)
@@ -322,13 +548,15 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str, poli
                 article_mask = sample['article_mask'].unsqueeze(0).to(device)  # (1, K)
                 article_meta = sample['article_metadata'].unsqueeze(0).to(device)  # (1, K, 4)
 
-                # Get prediction
+                # Get prediction. Symbol is forwarded for API compatibility;
+                # the paper-final model does not use it in Eq.9.
                 pred_dict = model(
                     market_feat=market_feat,
                     horizon=horizon,
                     article_emb=article_emb,
                     article_mask=article_mask,
-                    article_meta_vec=article_meta
+                    article_meta_vec=article_meta,
+                    symbol=symbol,
                 )
 
                 dir_logits = pred_dict['dir_logits']  # Shape: (1, 3)
@@ -371,13 +599,17 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str, poli
     else:
         signals = np.where(all_predictions == 2, 1, np.where(all_predictions == 0, -1, 0))
 
-    # Strategy PnL with real returns
-    strategy_pnl = simulate_trades(signals, all_returns)
+    # Strategy PnL with real returns. allow_short MUST match the convention
+    # used by metrics_safe_alert.mini_backtest (which trains threshold policies
+    # with LONG+SHORT on UP/DOWN) — otherwise the deployed strategy evaluates
+    # on different economics than the τ/γ search was optimized for (was Bug #4).
+    strategy_pnl = simulate_trades(signals, all_returns, allow_short=allow_short)
+    print(f"[OK] Strategy mode: {'long+short' if allow_short else 'long-only'}")
 
     # Buy-hold baseline with same real returns
     buyhold_pnl = all_returns
 
-    # Compute metrics on REAL data
+    # Compute metrics on REAL data — full-window (single aggregate view).
     strategy_metrics = compute_metrics(strategy_pnl)
     buyhold_metrics = compute_metrics(buyhold_pnl)
 
@@ -388,6 +620,25 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str, poli
     print("\n[BUY-HOLD BASELINE] (Same Real Returns)")
     for k, v in buyhold_metrics.items():
         print(f"  {k:15s}: {v:10.4f}")
+
+    # Walk-forward (PDF Section 4.2.3): split test set into rolling chunks and
+    # report mean±std. Addresses the reviewer concern that a single-window
+    # Sharpe can be inflated by a favourable regime.
+    strategy_wf = walk_forward_metrics(strategy_pnl, n_windows=5)
+    buyhold_wf = walk_forward_metrics(buyhold_pnl, n_windows=5)
+
+    print(f"\n[WALK-FORWARD] Strategy — {strategy_wf['n_windows']} non-overlapping windows "
+          f"of ~{strategy_wf['window_size']} samples each")
+    for key in ("sharpe", "sortino", "calmar", "max_dd", "win_rate", "total_return"):
+        mean = strategy_wf["summary"].get(f"{key}_mean", 0.0)
+        std = strategy_wf["summary"].get(f"{key}_std", 0.0)
+        print(f"  {key:15s}: {mean:+.4f} ± {std:.4f}")
+
+    print(f"\n[WALK-FORWARD] Buy-Hold — {buyhold_wf['n_windows']} windows")
+    for key in ("sharpe", "sortino", "calmar", "max_dd", "win_rate", "total_return"):
+        mean = buyhold_wf["summary"].get(f"{key}_mean", 0.0)
+        std = buyhold_wf["summary"].get(f"{key}_std", 0.0)
+        print(f"  {key:15s}: {mean:+.4f} ± {std:.4f}")
 
     # Table 3: Comparison
     table3 = pd.DataFrame({
@@ -422,11 +673,13 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str, poli
     print(f"  - table4_ablation.csv (awaiting ablation runs)")
     print(f"  - table5_timeframes.csv (awaiting 4h model)")
 
-    # Save metrics JSON
+    # Save metrics JSON — full-window + walk-forward (PDF Section 4.2.3).
     metrics_json = {
         "test_size": len(all_predictions),
         "strategy_metrics": {k: float(v) for k, v in strategy_metrics.items()},
         "buyhold_metrics": {k: float(v) for k, v in buyhold_metrics.items()},
+        "strategy_walk_forward": strategy_wf,
+        "buyhold_walk_forward": buyhold_wf,
         "data_source": "Real model inference on test set",
         "signal_distribution": {
             "UP": int(np.sum(all_predictions == 2)),
@@ -458,6 +711,10 @@ if __name__ == "__main__":
                         help="Horizon used for checkpoint name resolution")
     parser.add_argument("--policy_json", type=Path, default=None,
                         help="Optional policy JSON with tau/gamma/temperature")
+    parser.add_argument("--long_only", action="store_true",
+                        help="Long-only strategy (spot). Default: long+short, "
+                             "matches mini_backtest used during τ/γ search.")
 
     args = parser.parse_args()
-    backtest(args.artifact_dir, args.data_dir, args.symbol, args.horizon, args.policy_json)
+    backtest(args.artifact_dir, args.data_dir, args.symbol, args.horizon,
+             args.policy_json, allow_short=not args.long_only)

@@ -35,6 +35,7 @@ def _default_policy(symbol: str, horizon: str) -> dict[str, Any]:
         "tau": float(base["tau"]),
         "gamma": float(base["gamma"]),
         "temperature": float(base.get("temperature", 1.0)),
+        "policy_confidence_source": "raw",
         "symbol": symbol.upper(),
         "horizon": horizon,
         "source": "default_threshold_map",
@@ -126,9 +127,52 @@ def standardize_walk_forward_artifacts(
         loss = float(val.get("final_val_loss", 0.0))
         return acc - 0.05 * loss
 
-    best = max(folds, key=_score)
+    # Sprint 3.3-E — deploy gate respected by standardized policy.
+    # Pre-3.3-E: policy artifact picked the highest-val_score fold and
+    # consumers (live infer / backtest) had no signal whether the fold
+    # had passed the deployable hard gate. This silently allowed a
+    # high-F1-but-unprofitable checkpoint (fold 2 ep 2 in the diagnostic
+    # run: TradeCov=0.443, PosPnL=-0.7416, Sharpe=-0.174) to be promoted
+    # as the deploy policy because its val_score was the highest.
+    # The cross-fold console WARN was the only signal, but JSON-consuming
+    # downstreams ignore it.
+    #
+    # Post-3.3-E: (1) selection prefers any deployable fold over a
+    # higher-score-but-not-deployable fold; (2) policy artifact carries
+    # ``deployable`` / ``deploy_status`` / ``deployable_reason`` fields
+    # so consumers can hard-fail before pushing thresholds to production;
+    # (3) ``deployable_summary`` is included for audit (per-fold reasons).
+    deployable_states: list[tuple[int, bool, str]] = []
+    for rec in folds:
+        # ``deployable_checkpoint`` lives at top level of fold_record (set
+        # by Sprint 3.3-D-fix routing in train_safe_alert.py). Older fold
+        # records pre-3.3-D-fix may not have it; treat missing as None.
+        flag = rec.get("deployable_checkpoint")
+        reason = rec.get("deployable_reason", "n/a")
+        if flag is not None:
+            deployable_states.append((int(rec.get("fold", -1)), bool(flag), str(reason)))
+
+    n_total_with_flag = len(deployable_states)
+    n_deployable = sum(1 for _, d, _ in deployable_states if d)
+    deployable_fold_ids = {f for f, d, _ in deployable_states if d}
+
+    if deployable_fold_ids:
+        # Pick highest-score AMONG deployable folds.
+        deployable_folds = [r for r in folds if int(r.get("fold", -1)) in deployable_fold_ids]
+        best = max(deployable_folds, key=_score)
+        deploy_status = "ok"
+    else:
+        # Fall back to legacy behavior: highest score across all folds, but
+        # mark the artifact NOT deployable so downstream cannot use it
+        # without explicit override.
+        best = max(folds, key=_score)
+        deploy_status = "not_recommended" if n_total_with_flag > 0 else "unknown"
+
     best_val = best.get("val", {})
     best_test = best.get("test", {})
+    best_fold_id = int(best.get("fold", -1))
+    best_deployable = bool(best.get("deployable_checkpoint", False))
+    best_reason = str(best.get("deployable_reason", "n/a"))
 
     policy = {
         "tau": float(best_val.get("tau", _default_policy(symbol, horizon)["tau"])),
@@ -142,20 +186,54 @@ def standardize_walk_forward_artifacts(
         "alert_precision": float(best_val.get("alert_precision", best_test.get("alert_precision", 0.0))),
         "val_sharpe_proxy": float(best_val.get("alert_sharpe", best_test.get("alert_sharpe", 0.0))),
         "policy_source": str(best_val.get("policy_source", "validation_grid_search")),
+        "policy_confidence_source": str(best_val.get("policy_confidence_source", "raw")),
         "policy_objective": float(best_val.get("policy_objective", best_val.get("model_score", _score(best)))),
         "target_coverage": 0.35,
         "score": float(best_val.get("model_score", _score(best))),
-        "deploy_fold": int(best.get("fold", -1)),
+        "deploy_fold": best_fold_id,
         "mode": "walk_forward_best_fold",
         "source_artifact": str(walk_forward_path),
         "note": "Thresholds frozen from validation split of best walk-forward fold.",
+        # Sprint 3.3-E — deploy gate carried into the artifact.
+        # ``deployable``: True only when the selected fold passed the hard
+        #   gate (trade_cov >= 0.05, sharpe not suppressed, not both
+        #   pnl<0 AND sharpe<0). Consumers MUST check this flag.
+        # ``deploy_status``: human-readable: "ok", "not_recommended"
+        #   (≥1 fold has gate flag but none deployable), or "unknown"
+        #   (no fold record had the gate field — pre-3.3-D-fix artifact).
+        # ``deployable_reason``: short string copied from the selected
+        #   fold's reason so consumers can log WHY the artifact is
+        #   marked NOT deployable without parsing the full summary.
+        "deployable": best_deployable,
+        "deploy_status": deploy_status,
+        "deployable_reason": best_reason,
+        "deployable_n_passed": int(n_deployable),
+        "deployable_n_total": int(n_total_with_flag),
     }
     save_safe_alert_policy(policy, symbol, horizon, artifact_dir=artifact_dir)
 
+    # Sprint 3.3-E — deploy gate audit block included at the summary
+    # level so dashboards / CI gates can read a single block for the
+    # deploy decision instead of crawling per-fold records. Mirrors the
+    # console WARN that train_safe_alert prints; intent is artifact and
+    # log say the same thing.
+    deployable_summary = {
+        "deployable": bool(best_deployable),
+        "deploy_status": deploy_status,
+        "selected_fold": best_fold_id,
+        "selected_fold_reason": best_reason,
+        "n_deployable": int(n_deployable),
+        "n_total": int(n_total_with_flag),
+        "per_fold": [
+            {"fold": fid, "deployable": d, "reason": r}
+            for fid, d, r in deployable_states
+        ],
+    }
     summary = {
         "source": str(walk_forward_path),
         "selected_deployment_fold": int(best.get("fold", -1)),
         "deployment_policy": policy,
+        "deployable_summary": deployable_summary,
         "metric_groups": {
             "forecast": {
                 "macro_f1": float(best_test.get("macro_f1", 0.0)),

@@ -15,6 +15,9 @@ Usage:
     python precompute_factor_labels.py --method zero_shot
     python precompute_factor_labels.py --method llm_api
     python precompute_factor_labels.py --method gemini
+    python precompute_factor_labels.py --method mistral
+    python precompute_factor_labels.py --method qwen                          # needs GPU (Kaggle/Colab)
+    python precompute_factor_labels.py --method qwen --qwen_model Qwen/Qwen2.5-3B-Instruct
     python precompute_factor_labels.py --method blend
 """
 
@@ -38,93 +41,21 @@ except ImportError:
     pass  # dotenv not required, will use env vars directly
 
 # ---------------------------------------------------------------------------
-# Extended factor keyword ontology (10 classes)
-# Base keywords from SAFE-Alert dataset + extended list for better coverage
+# Factor keyword ontology — loaded from factor_ontology.json (single source
+# of truth). Any drift between this precompute script and the JSON used by
+# safe_alert_net.py would produce labels misaligned with the trained model.
 # ---------------------------------------------------------------------------
-FACTOR_KEYWORDS = {
-    "institutional_inflow": [
-        # base
-        "institution", "fund", "grayscale", "microstrategy", "blackrock",
-        "corporate", "treasury", "bitcoin purchase", "acquisition", "buy", "accumul",
-        # extended
-        "pension", "endowment", "sovereign", "wealth fund", "retail", "adoption",
-        "purchased", "invested", "allocat",
-    ],
-    "etf_flow": [
-        # base
-        "etf", "spot etf", "bitcoin etf", "sec approval", "inflow", "outflow",
-        "etf listing", "issuance",
-        # extended
-        "bitcoin fund", "crypto fund", "futures etf", "bitcoin trust",
-        "grayscale premium", "discount", "nav",
-    ],
-    "regulatory_easing": [
-        # base
-        "approved", "legal", "regulatory clarity", "compliant", "licensed",
-        "framework", "clearance", "authorize",
-        # extended
-        "regulation", "bill", "congress", "law", "policy", "guidance",
-        "exemption", "sandbox", "pilot",
-    ],
-    "regulatory_tightening": [
-        # base
-        "ban", "crackdown", "illegal", "sanction", "sec sue", "enforcement",
-        "restrict", "prohibited", "suspension",
-        # extended
-        "warning", "probe", "investigation", "fine", "penalty", "delist",
-        "cbdc", "kyc", "aml",
-    ],
-    "exchange_risk": [
-        # base
-        "hack", "exploit", "exchange down", "withdrawal halt", "insolvent",
-        "ftx", "celsius", "rug", "compromised",
-        # extended
-        "security", "breach", "stolen", "loss", "bankrupt", "withdrawal",
-        "freeze", "halted", "suspicious",
-    ],
-    "liquidity_squeeze": [
-        # base
-        "liquidity", "leverage", "liquidation", "margin call", "funding rate",
-        "squeeze", "cascade", "deleverag",
-        # extended
-        "short squeeze", "long squeeze", "open interest", "perp", "futures",
-        "basis", "contango", "backwardation",
-    ],
-    "whale_accumulation": [
-        # base
-        "whale", "transaction", "on-chain", "address", "wallet", "accumulate",
-        "hodl", "large buy", "holdings",
-        # extended
-        "large transaction", "miner", "mining", "cold storage", "staking",
-        "hodler", "accumulation", "supply",
-    ],
-    "macro_uncertainty": [
-        # base
-        "inflation", "fed", "interest rate", "recession", "gdp", "cpi",
-        "fomc", "yield", "economy", "growth",
-        # extended
-        "rate hike", "rate cut", "bank", "dollar", "usd", "dxy", "treasury",
-        "bonds", "stock market", "equity",
-    ],
-    "protocol_upgrade": [
-        # base
-        "upgrade", "fork", "halving", "taproot", "merge", "protocol",
-        "layer2", "lightning", "launch", "update",
-        # extended
-        "mainnet", "testnet", "snapshot", "airdrop", "defi", "nft",
-        "smart contract", "validator", "node",
-    ],
-    "network_outage": [
-        # base
-        "outage", "congestion", "fees spike", "mempool", "hash rate",
-        "51%", "network issue", "downtime",
-        # extended
-        "slow", "backlog", "stuck", "unconfirmed", "difficulty", "block time",
-        "hashpower", "reorg",
-    ],
-}
-
-FACTOR_NAMES = list(FACTOR_KEYWORDS.keys())
+import json as _json
+_ONTOLOGY_PATH = Path(__file__).parent.parent / "factor_ontology.json"
+if not _ONTOLOGY_PATH.exists():
+    raise FileNotFoundError(
+        f"factor_ontology.json missing at {_ONTOLOGY_PATH}. "
+        "This file is the single source of truth for FACTOR_KEYWORDS."
+    )
+with open(_ONTOLOGY_PATH, "r", encoding="utf-8") as _f:
+    _ONTOLOGY = _json.load(_f)
+FACTOR_NAMES: list = list(_ONTOLOGY["FACTOR_NAMES"])
+FACTOR_KEYWORDS: dict = dict(_ONTOLOGY["FACTOR_KEYWORDS"])
 N_FACTORS = len(FACTOR_NAMES)  # 10
 
 # ---------------------------------------------------------------------------
@@ -1114,6 +1045,260 @@ def compute_factor_labels_mistral(
     return factor_labels, n_matched, n_source_biased, factor_top_counts
 
 
+def compute_factor_labels_qwen(
+    articles_df: pd.DataFrame,
+    seed: int = 42,
+    model_name: str = "Qwen/Qwen2.5-7B-Instruct-AWQ",
+    batch_size: int = 32,
+    consistency: bool = True,
+) -> tuple:
+    """Compute factor labels using Qwen 2.5 open-source LLM via vLLM batch inference.
+
+    Matches PDF Section 4.5.3: LLM prompting with consistency filter.
+
+    For each article:
+    - Calls Qwen with FACTOR_PROMPT (same as Claude/Gemini/Mistral methods).
+    - Parses primary/secondary/confidence JSON.
+    - If consistency=True: 2-pass check. Low-confidence (<0.8) samples get a second
+      call with higher temperature; keeps label only if both calls agree on primary.
+    - Falls back to keyword method on any parse error or disagreement.
+
+    Designed to run on free GPU (Kaggle T4/P100, Colab T4). Expected runtime:
+    - Qwen 2.5 7B-AWQ:  ~2-3h for 90K articles x 1 call on T4.
+    - Qwen 2.5 3B-AWQ:  ~1-2h for 90K articles x 1 call on T4.
+    - With consistency: add ~20-30% for second-pass calls on low-confidence samples.
+
+    Args:
+        articles_df: DataFrame with columns [title, content, source].
+        seed:        Random seed for reproducible soft priors (fallback path).
+        model_name:  HuggingFace repo id. Try 7B-AWQ first, falls back to 3B-Instruct on OOM.
+        batch_size:  Batch size for vLLM generate() (default 32).
+        consistency: If True, apply 2-pass consistency filter on low-confidence samples.
+
+    Returns:
+        (factor_labels, n_matched, n_source_biased, factor_top_counts).
+    """
+    # Force attention backend that does NOT require FlashInfer JIT compile.
+    # Kaggle/Colab containers often lack libcuda.so stub, which breaks FlashInfer's
+    # ninja-based CUDA kernel JIT compilation. TRITON_ATTN is pure Triton (no C++
+    # compile needed) and works on all modern GPUs.
+    os.environ.setdefault("VLLM_ATTENTION_BACKEND", "TRITON_ATTN")
+
+    try:
+        from vllm import LLM, SamplingParams
+    except ImportError:
+        print("[ERROR] vllm not installed. Run: pip install vllm")
+        print("        (On Kaggle: !pip install vllm)")
+        sys.exit(1)
+
+    print(f"[qwen] Loading {model_name} via vLLM (backend={os.environ['VLLM_ATTENTION_BACKEND']}) ...")
+
+    # Common kwargs. enforce_eager=True disables CUDA graph capture — slightly slower
+    # but bypasses the FlashInfer decode-plan JIT compile path entirely, which is
+    # the one that fails with "cannot find -lcuda" on Kaggle free tier containers.
+    _llm_kwargs = dict(
+        dtype="float16",
+        gpu_memory_utilization=0.85,
+        max_model_len=2048,
+        enable_prefix_caching=True,   # cache system prompt across batches
+        trust_remote_code=True,
+        enforce_eager=True,            # no CUDA graphs -> no FlashInfer JIT
+    )
+
+    # Try preferred model first; fall back to 3B-Instruct on any load failure (e.g. OOM).
+    try:
+        llm = LLM(model=model_name, **_llm_kwargs)
+    except Exception as exc:
+        print(f"[qwen] Failed to load {model_name}: {exc}")
+        fallback = "Qwen/Qwen2.5-3B-Instruct"
+        print(f"[qwen] Falling back to {fallback}")
+        llm = LLM(model=fallback, **_llm_kwargs)
+        model_name = fallback
+
+    tokenizer = llm.get_tokenizer()
+    print(f"[qwen] Model loaded. Starting batch classification ...")
+
+    rng = np.random.default_rng(seed)
+    N = len(articles_df)
+    factor_labels = np.zeros((N, N_FACTORS), dtype=np.float32)
+
+    n_qwen_used       = 0
+    n_consistency_ok  = 0
+    n_disagreement    = 0
+    n_fallback        = 0
+    n_matched         = 0
+    n_source_biased   = 0
+    factor_top_counts = np.zeros(N_FACTORS, dtype=np.int64)
+
+    # Deterministic pass 1: T=0.0 for stable primary prediction
+    sp_pass1 = SamplingParams(temperature=0.0, max_tokens=128)
+    # Higher-temperature pass 2: diversity probe for consistency check
+    sp_pass2 = SamplingParams(temperature=0.6, max_tokens=128, seed=seed)
+
+    def _format_chat_prompt(title: str, content: str) -> str:
+        """Build chat prompt using Qwen chat template (applies system + user roles)."""
+        prompt = FACTOR_PROMPT.format(
+            title=title,
+            content=content[:300],
+        )
+        messages = [
+            {"role": "system", "content": "You are a financial news classifier. Output only JSON."},
+            {"role": "user",   "content": prompt},
+        ]
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True,
+        )
+
+    def _parse_output(raw: str):
+        """Strip markdown fences and parse JSON — returns dict or None."""
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
+        # Qwen sometimes prefixes JSON with extra text — find first '{'
+        brace = raw.find("{")
+        if brace > 0:
+            raw = raw[brace:]
+        try:
+            return json.loads(raw)
+        except Exception:
+            return None
+
+    def _build_probs(parsed: dict) -> np.ndarray:
+        """Same conversion as other LLM methods (primary/secondary/confidence → probs)."""
+        probs = np.zeros(N_FACTORS, dtype=np.float32)
+        primary   = parsed.get("primary",   "")
+        secondary = parsed.get("secondary", None)
+        conf      = float(parsed.get("confidence", 0.7))
+        conf      = max(0.0, min(1.0, conf))
+
+        if primary in FACTOR_NAMES:
+            p_idx = FACTOR_NAMES.index(primary)
+            probs[p_idx] += conf
+        else:
+            probs += conf / N_FACTORS
+
+        if secondary and secondary in FACTOR_NAMES and secondary != primary:
+            s_idx = FACTOR_NAMES.index(secondary)
+            probs[s_idx] += (1.0 - conf)
+        else:
+            if primary in FACTOR_NAMES:
+                p_idx = FACTOR_NAMES.index(primary)
+                probs[p_idx] += (1.0 - conf)
+            else:
+                probs += (1.0 - conf) / N_FACTORS
+
+        total = probs.sum()
+        if total > 0:
+            probs /= total
+        else:
+            probs = np.ones(N_FACTORS, dtype=np.float32) / N_FACTORS
+        return probs.astype(np.float32)
+
+    def _keyword_fallback(row) -> np.ndarray:
+        """Keyword+source-prior fallback when LLM disagrees or parse fails."""
+        nonlocal n_matched, n_source_biased, n_fallback
+        title   = getattr(row, "title",   "")
+        content = getattr(row, "content", "")
+        source  = getattr(row, "source",  "")
+        kw_scores = _score_article(title, content)
+        n_fallback += 1
+        if kw_scores.sum() > 0:
+            n_matched += 1
+            return _softmax_with_temp(kw_scores, LABEL_TEMP)
+        else:
+            src_lower = str(source).lower() if pd.notna(source) else ""
+            for src_key in SOURCE_PRIOR_BOOSTS:
+                if src_key in src_lower and SOURCE_PRIOR_BOOSTS[src_key]:
+                    n_source_biased += 1
+                    break
+            return _soft_prior(source, rng)
+
+    rows = list(articles_df.itertuples(index=False))
+
+    # ── Batched inference (vLLM handles continuous batching internally) ──────
+    for batch_start in range(0, N, batch_size):
+        batch_rows = rows[batch_start : batch_start + batch_size]
+        prompts = [
+            _format_chat_prompt(
+                str(getattr(r, "title",   "")).strip(),
+                str(getattr(r, "content", "")).strip(),
+            )
+            for r in batch_rows
+        ]
+
+        # Pass 1 (deterministic)
+        outputs1 = llm.generate(prompts, sp_pass1, use_tqdm=False)
+        parsed1_list = [_parse_output(o.outputs[0].text) for o in outputs1]
+
+        # Identify low-confidence samples for consistency check
+        low_conf_idx = []
+        if consistency:
+            for idx, p in enumerate(parsed1_list):
+                if p is None:
+                    continue  # parse error handled later
+                try:
+                    if float(p.get("confidence", 0.0)) < 0.8:
+                        low_conf_idx.append(idx)
+                except (ValueError, TypeError):
+                    low_conf_idx.append(idx)
+
+            if low_conf_idx:
+                low_prompts = [prompts[i] for i in low_conf_idx]
+                outputs2 = llm.generate(low_prompts, sp_pass2, use_tqdm=False)
+                parsed2_map = {
+                    low_conf_idx[j]: _parse_output(outputs2[j].outputs[0].text)
+                    for j in range(len(low_conf_idx))
+                }
+            else:
+                parsed2_map = {}
+        else:
+            parsed2_map = {}
+
+        for local_idx, (row, parsed1) in enumerate(zip(batch_rows, parsed1_list)):
+            global_idx = batch_start + local_idx
+
+            if parsed1 is None:
+                probs = _keyword_fallback(row)
+            else:
+                primary1 = parsed1.get("primary", "")
+                if local_idx in parsed2_map:
+                    parsed2 = parsed2_map[local_idx]
+                    if parsed2 is not None and parsed2.get("primary", "") == primary1:
+                        probs = _build_probs(parsed1)
+                        n_qwen_used      += 1
+                        n_consistency_ok += 1
+                    else:
+                        probs = _keyword_fallback(row)
+                        n_disagreement += 1
+                else:
+                    probs = _build_probs(parsed1)
+                    n_qwen_used += 1
+
+            factor_labels[global_idx] = probs
+            factor_top_counts[probs.argmax()] += 1
+
+        processed = min(batch_start + batch_size, N)
+        if processed % (batch_size * 10) == 0 or processed >= N:
+            pct = processed / N * 100
+            print(
+                f"  Progress: {processed}/{N} ({pct:.1f}%) "
+                f"| qwen={n_qwen_used} consist_ok={n_consistency_ok} "
+                f"disagree={n_disagreement} fallback={n_fallback}",
+                flush=True,
+            )
+
+    print(
+        f"[qwen] Done. LLM-classified={n_qwen_used}/{N} "
+        f"| Consistency-agreed={n_consistency_ok} Disagreements={n_disagreement} "
+        f"| Fallback-keyword={n_matched} Fallback-prior={n_source_biased} "
+        f"(model={model_name})"
+    )
+    return factor_labels, n_matched, n_source_biased, factor_top_counts
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Precompute factor probability labels for all articles."
@@ -1140,7 +1325,7 @@ def main():
     )
     parser.add_argument(
         "--method",
-        choices=["keyword", "zero_shot", "llm_api", "gemini", "mistral", "blend"],
+        choices=["keyword", "zero_shot", "llm_api", "gemini", "mistral", "qwen", "blend"],
         default="keyword",
         help=(
             "Factor label method: "
@@ -1149,7 +1334,31 @@ def main():
             "llm_api (Claude API, requires ANTHROPIC_API_KEY), "
             "gemini (Google Gemini free tier, requires GOOGLE_API_KEY), "
             "mistral (Mistral AI, requires MISTRAL_API_KEY), "
+            "qwen (Qwen 2.5 open-source via vLLM, needs GPU — matches PDF Section 4.5.3), "
             "blend (zero_shot when confident, else keyword)"
+        ),
+    )
+    parser.add_argument(
+        "--qwen_model",
+        type=str,
+        default="Qwen/Qwen2.5-7B-Instruct-AWQ",
+        help=(
+            "Qwen model id for --method qwen (default: Qwen2.5-7B-Instruct-AWQ). "
+            "Try Qwen/Qwen2.5-3B-Instruct or Qwen/Qwen2.5-1.5B-Instruct if 7B OOMs."
+        ),
+    )
+    parser.add_argument(
+        "--qwen_batch_size",
+        type=int,
+        default=32,
+        help="vLLM batch size for --method qwen (default: 32).",
+    )
+    parser.add_argument(
+        "--qwen_no_consistency",
+        action="store_true",
+        help=(
+            "Disable 2-pass consistency filter for --method qwen (runs faster "
+            "but paper Section 4.5.3 claims are weakened)."
         ),
     )
     parser.add_argument(
@@ -1234,6 +1443,10 @@ def main():
     elif args.method == "mistral":
         api_key_set = bool(os.environ.get("MISTRAL_API_KEY", ""))
         print(f"  MISTRAL_API_KEY set: {api_key_set}")
+    elif args.method == "qwen":
+        print(f"  Qwen model:    {args.qwen_model}")
+        print(f"  Batch size:    {args.qwen_batch_size}")
+        print(f"  Consistency:   {not args.qwen_no_consistency}")
     print()
 
     # Load articles
@@ -1294,6 +1507,17 @@ def main():
         factor_labels, n_matched, n_source_biased, factor_top_counts = (
             compute_factor_labels_mistral(articles_df, seed=42)
         )
+    elif args.method == "qwen":
+        print(f"[COMPUTE] Qwen vLLM classification ({N} articles, model={args.qwen_model})...")
+        factor_labels, n_matched, n_source_biased, factor_top_counts = (
+            compute_factor_labels_qwen(
+                articles_df,
+                seed=42,
+                model_name=args.qwen_model,
+                batch_size=args.qwen_batch_size,
+                consistency=not args.qwen_no_consistency,
+            )
+        )
     else:
         print(f"[ERROR] Unknown method: {args.method}")
         sys.exit(1)
@@ -1310,7 +1534,7 @@ def main():
     postprocess_mode = args.postprocess
     postprocess_enabled = (
         postprocess_mode == "on" or
-        (postprocess_mode == "auto" and args.method in {"zero_shot", "llm_api", "gemini", "mistral", "blend"})
+        (postprocess_mode == "auto" and args.method in {"zero_shot", "llm_api", "gemini", "mistral", "qwen", "blend"})
     )
     if postprocess_enabled:
         print("[POST] Softening factor label distributions...")

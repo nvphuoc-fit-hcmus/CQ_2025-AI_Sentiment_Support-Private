@@ -58,6 +58,7 @@ from alerts.alert_decider import decide_alert_multimodal_eq26
 from pipelines.utils import ARTIFACT_DIR, load_safe_alert_policy
 from models.safe_alert_net import FACTOR_KEYWORDS, FACTOR_NAMES, META_DIM
 from pipelines.precompute_factor_labels import compute_factor_probs_for_article
+from pipelines.precompute_entity_sentiment import compute_one_article_entity_sentiment
 
 logger = logging.getLogger("v2.live_infer")
 
@@ -70,6 +71,13 @@ _FACTOR_LABEL_CACHE = None
 _ENTITY_SENT_CACHE = None
 _FACTOR_URL_MAP = None
 _FACTOR_TITLE_TS_MAP = None
+# R3 #C3: FinBERT classification pipeline for runtime per-factor sentiment.
+# Training used ProsusAI/finbert classifier per-factor (see
+# precompute_entity_sentiment.py). Runtime must match — previous VADER×keyword
+# approximation produced same-sign per-factor sentiments, contradicting training
+# distribution (where an article can be +etf_flow AND -exchange_risk). This
+# cache lazily loads the classifier on first cache miss.
+_FINBERT_CLASSIFIER = None
 
 # ── Config ──────────────────────────────────────────────────────
 NLP_LAGS          = [1, 2, 3]          # lag cols: vader_mean_lag1-3 etc.
@@ -144,18 +152,59 @@ def _get_runtime_embedder() -> _FinBertEmbedder:
     return _RUNTIME_EMBEDDER
 
 
-def _estimate_entity_sentiment(title: str, content: str, source: str = "") -> np.ndarray:
-    """Approximate target-based factor sentiment in live mode.
+def _get_finbert_classifier():
+    """Lazy-load ProsusAI/finbert classifier for runtime entity-sentiment
+    computation. Matches train-time FinBERT used in precompute_entity_sentiment.py."""
+    global _FINBERT_CLASSIFIER
+    if _FINBERT_CLASSIFIER is not None:
+        return _FINBERT_CLASSIFIER
+    try:
+        from transformers import pipeline as hf_pipeline
+        _FINBERT_CLASSIFIER = hf_pipeline(
+            "text-classification",
+            model="ProsusAI/finbert",
+            top_k=None,          # return all 3 labels (positive/negative/neutral)
+            truncation=True,
+            max_length=128,
+        )
+        logger.info("[live_infer] FinBERT classifier loaded for runtime entity sentiment.")
+        return _FINBERT_CLASSIFIER
+    except Exception as exc:
+        logger.warning("[live_infer] FinBERT classifier load failed — "
+                       "entity_sentiment will fall back to zeros for cache-miss articles: %s", exc)
+        _FINBERT_CLASSIFIER = False  # sentinel: tried and failed
+        return None
 
-    Reuse the same factor scoring logic as pseudo-label precomputation so the
-    live factor path stays closer to the train-time artifact path. The result is
-    still lightweight, but much less ad-hoc than broadcasting one sentiment
-    score to every matched factor.
+
+def _estimate_entity_sentiment(title: str, content: str, source: str = "") -> np.ndarray:
+    """R3 #C3 fix: Per-factor FinBERT entity sentiment at runtime.
+
+    PREVIOUSLY (broken): returned ``VADER(overall) × factor_probs`` — a single
+    scalar VADER sentiment scaled by keyword-based factor probabilities. This
+    forces EVERY factor to have the same SIGN (positive/negative), which
+    contradicts training distribution: articles can simultaneously have
+    ``+etf_flow`` and ``-exchange_risk``.
+
+    NOW (correct): delegate to ``compute_one_article_entity_sentiment`` which
+    IS the same function precompute_entity_sentiment.py uses for training
+    artefacts. For cache-hit articles we use the cached LLM labels; for cache
+    miss we run FinBERT per-factor at runtime. Adds ~200-500 ms latency on
+    cache miss but ensures train/inference distribution parity.
+
+    Falls back to zeros only if FinBERT fails to load (e.g. no internet,
+    disk full) — the model then gets a neutral 10-dim FSA vector for those
+    articles, which is the same behaviour as training-time unmatched articles.
     """
-    text = f"{title} {content}".strip()
-    overall = float(get_vader_score(text))
-    factor_probs = _infer_factor_distribution(title, content, source)
-    return (factor_probs * overall).astype(np.float32)
+    classifier = _get_finbert_classifier()
+    if classifier is None or classifier is False:
+        return np.zeros(len(FACTOR_NAMES), dtype=np.float32)
+    try:
+        return compute_one_article_entity_sentiment(
+            title=title, content=content, finbert_pipeline=classifier, batch_size=16,
+        )
+    except Exception as exc:
+        logger.warning("[live_infer] Runtime entity sentiment failed: %s", exc)
+        return np.zeros(len(FACTOR_NAMES), dtype=np.float32)
 
 
 def _infer_factor_distribution(title: str, content: str, source: str = "") -> np.ndarray:
@@ -662,9 +711,16 @@ def _load_safe_alert_net(symbol: str, horizon: str):
 
     try:
         import torch
-        from models.safe_alert_net import SAFEAlertNet
-        print(f"[live_infer] Creating SAFEAlertNet (market_dim={_SAFE_ALERT_MARKET_DIM}, K_15m=3, K_1h=4, K_4h=5)...")
-        model = SAFEAlertNet(market_dim=_SAFE_ALERT_MARKET_DIM, has_news=True, K_15m=3, K_1h=4, K_4h=5)
+        from models.safe_alert_net import SAFEAlertNet, FACTOR_CLASSES as _FCL
+        print(f"[live_infer] Creating SAFEAlertNet (market_dim={_SAFE_ALERT_MARKET_DIM}, "
+              f"K_15m=3, K_1h=4, K_4h=5, K_24h=8)...")
+        # Session 26: explicit K_24h=8 + n_factors to protect against default
+        # drift. Loading checkpoint afterwards will verify state_dict shapes.
+        model = SAFEAlertNet(
+            market_dim=_SAFE_ALERT_MARKET_DIM, has_news=True,
+            K_15m=3, K_1h=4, K_4h=5, K_24h=8,
+            n_factors=_FCL,
+        )
         print(f"[live_infer] Loading state dict from {ckpt_path.name}...")
         checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
@@ -676,8 +732,48 @@ def _load_safe_alert_net(symbol: str, horizon: str):
             state = checkpoint
             print(f"[INFO] Using checkpoint directly ({len(state)} keys)")
 
-        model.load_state_dict(state)
+        # strict=False keeps live inference tolerant to checkpoint schema drift.
+        _result = model.load_state_dict(state, strict=False)
+        if _result.missing_keys or _result.unexpected_keys:
+            print(
+                f"[WARN] state_dict mismatch — missing={list(_result.missing_keys)[:5]}, "
+                f"unexpected={list(_result.unexpected_keys)[:5]} (first 5). "
+                "Checkpoint schema may differ from the current model."
+            )
         model.eval()
+
+        # P0 #1: rehydrate preprocessing state (market scaler) attached to the
+        # model instance so _run_safe_alert_net can apply the SAME z-score
+        # normalization that training used. Without this, raw features at
+        # inference would drift far outside the training distribution and
+        # produce garbage predictions (the production blocker).
+        preproc = checkpoint.get("preprocessing_state") if isinstance(checkpoint, dict) else None
+        if preproc is not None and preproc.get("market_feature_mean") is not None:
+            import torch as _torch
+            model._market_feature_mean = _torch.as_tensor(preproc["market_feature_mean"]).float()
+            model._market_feature_std  = _torch.as_tensor(preproc["market_feature_std"]).float()
+            model._market_feature_clip = float(preproc.get("market_feature_clip", 8.0))
+            print(f"[OK] Loaded preprocessing state (mean/std/clip={model._market_feature_clip})")
+        else:
+            # Checkpoint predates the P0 #1 fix — warn loudly so operators know
+            # predictions will be on RAW features and are likely unreliable.
+            model._market_feature_mean = None
+            model._market_feature_std  = None
+            model._market_feature_clip = 8.0
+            import warnings as _warnings
+            _warnings.warn(
+                f"[live_infer] Checkpoint {ckpt_path.name} has NO preprocessing_state "
+                f"(pre-P0#1 artifact). Live inference will use RAW market features — "
+                f"predictions will drift from training distribution. Retrain to refresh.",
+                RuntimeWarning, stacklevel=2,
+            )
+
+        # Also attach trained temperature (for _temperature_softmax) when present.
+        if isinstance(checkpoint, dict) and "temperature" in checkpoint:
+            model._ckpt_temperature = float(checkpoint.get("temperature") or 1.0)
+        else:
+            model._ckpt_temperature = 1.0
+
         _SAFE_ALERT_MODELS[key] = model
         print(f"[OK] SAFEAlertNet loaded successfully for {symbol}/{horizon}")
         logger.info("[OK] SAFEAlertNet loaded successfully for %s/%s", symbol, horizon)
@@ -746,10 +842,19 @@ def _build_article_tensors(
         text_len = len(str(row.get("content", row.get("title", ""))))
         length_norm = min(1.0, text_len / 2000.0)
 
+        # Paper Section 3.3.1 — same tier whitelist used at training time.
+        # Keeps training / live-inference feature distributions consistent.
+        from pipelines.safe_alert_dataset import (
+            SOURCE_TIER1, SOURCE_TIER2,
+            SOURCE_TIER1_SCORE, SOURCE_TIER2_SCORE,
+        )
         src = str(row.get("source", "unknown")).lower()
-        SOURCE_CRED = {"reuters": 0.98, "bloomberg": 0.98, "coindesk": 0.85,
-                       "cointelegraph": 0.80, "decrypt": 0.75}
-        source_cred = SOURCE_CRED.get(src, 0.50)
+        if any(needle in src for needle in SOURCE_TIER1):
+            source_cred = SOURCE_TIER1_SCORE
+        elif any(needle in src for needle in SOURCE_TIER2):
+            source_cred = SOURCE_TIER2_SCORE
+        else:
+            source_cred = 0.30  # unknown source fallback (matches dataset default)
 
         sentiment_score = float(row.get("sentiment_score", row.get("nlp_score", 0.0)) or 0.0)
         novelty = min(1.0, abs(sentiment_score))
@@ -813,6 +918,8 @@ def _run_safe_alert_net(
     tau_h: float = 0.65,
     gamma_h: float = 0.60,
     temperature_h: float = 1.0,
+    policy_confidence_source: str = "raw",
+    symbol: str | None = None,
 ) -> dict | None:
     """
     Run a single SAFEAlertNet forward pass for one sample.
@@ -852,6 +959,21 @@ def _run_safe_alert_net(
             mkt_vals = mkt_vals[:_SAFE_ALERT_MARKET_DIM]
             print(f"   [DATA] [_run_safe_alert_net] Using PSEUDO-TIMEFRAME market features ({len(mkt_vals)} cols)")
         mkt_tensor = torch.tensor([mkt_vals], dtype=torch.float32)  # (1, M)
+
+        # P0 #1: apply training-time z-score normalization. The scaler was
+        # fit on train split only and persisted in the checkpoint; without
+        # this the model sees raw features (distribution mismatch).
+        # apply_market_normalization shares the exact math with
+        # Dataset._normalize_market_features so training and inference cannot
+        # silently diverge.
+        from pipelines.safe_alert_dataset import apply_market_normalization
+        mkt_tensor = apply_market_normalization(
+            mkt_tensor,
+            mean=getattr(model, "_market_feature_mean", None),
+            std=getattr(model, "_market_feature_std",  None),
+            clip=float(getattr(model, "_market_feature_clip", 8.0)),
+        )
+
         print(f"[RUN] [_run_safe_alert_net] Market tensor shape: {mkt_tensor.shape}, sum={mkt_tensor.sum():.2f}, mean={mkt_tensor.mean():.6f}")
 
         # Article tensors
@@ -870,6 +992,8 @@ def _run_safe_alert_net(
             print(f"[RUN] [_run_safe_alert_net] No articles found")
 
         print(f"[RUN] [_run_safe_alert_net] Calling model forward pass...")
+        # The model accepts symbol for API compatibility; the paper-final
+        # Eq.9 query uses market summary + horizon embedding only.
         with torch.no_grad():
             out = model(
                 market_feat=mkt_tensor,
@@ -877,6 +1001,7 @@ def _run_safe_alert_net(
                 article_emb=art_emb,
                 article_mask=art_mask,
                 article_meta_vec=art_meta,
+                symbol=symbol,
             )
         print(f"[OK] [_run_safe_alert_net] Model forward pass successful!")
         print(f"[RUN] [_run_safe_alert_net] Output keys: {out.keys()}")
@@ -889,7 +1014,10 @@ def _run_safe_alert_net(
         print(f"[OK] [_run_safe_alert_net] Confidence: {confidence}, Signal: {['DOWN', 'NEUTRAL', 'UP'][pred_class]}")
 
         # Alert decision Eq.26
-        should_alert = bool((confidence >= float(tau_h)) and (float(probs_tensor.max().item()) >= float(gamma_h)))
+        policy_confidence = confidence
+        if str(policy_confidence_source).strip().lower() == "position":
+            policy_confidence = confidence * (1.0 - float(probs_tensor[1].item()))
+        should_alert = bool((policy_confidence >= float(tau_h)) and (float(probs_tensor.max().item()) >= float(gamma_h)))
 
         # Structured explanation
         explanation = {}
@@ -911,6 +1039,8 @@ def _run_safe_alert_net(
         return {
             "signal":       dir_map.get(pred_class, "NEUTRAL"),
             "confidence":   confidence,
+            "policy_confidence": float(policy_confidence),
+            "policy_confidence_source": str(policy_confidence_source),
             "probs":        {"DOWN": probs[0], "NEUTRAL": probs[1], "UP": probs[2]},
             "should_alert": should_alert,
             "temperature": float(temperature_h),
@@ -982,6 +1112,8 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
             use_multiframe=use_multiframe,
             tau_h=float(p1_thresh["tau"]), gamma_h=float(p1_thresh["gamma"]),
             temperature_h=float(p1_thresh.get("temperature", 1.0)),
+            policy_confidence_source=str(p1_thresh.get("policy_confidence_source", "raw")),
+            symbol=symbol,
         )
         if san_1h_raw:
             print(f"[OK] [1h] Inference result: signal={san_1h_raw.get('signal')}, conf={san_1h_raw.get('confidence')}")
@@ -1000,6 +1132,8 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
         h1h = {
             "signal":        _SAN_SIGNAL_MAP.get(model_signal, "HOLD"),
             "confidence":    model_conf,
+            "policy_confidence": san_1h_raw.get("policy_confidence", model_conf),
+            "policy_confidence_source": san_1h_raw.get("policy_confidence_source", "raw"),
             "final_prob":    probs.get("UP", 0.333),
             "probs":         probs,
             "selected_news": san_1h_raw.get("selected_news", []),
@@ -1022,6 +1156,8 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
             use_multiframe=use_multiframe,
             tau_h=float(p4_thresh["tau"]), gamma_h=float(p4_thresh["gamma"]),
             temperature_h=float(p4_thresh.get("temperature", 1.0)),
+            policy_confidence_source=str(p4_thresh.get("policy_confidence_source", "raw")),
+            symbol=symbol,
         )
         if san_4h_raw:
             print(f"[OK] [4h] Inference result: signal={san_4h_raw.get('signal')}, conf={san_4h_raw.get('confidence')}")
@@ -1038,6 +1174,8 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
         h4h = {
             "signal":        _SAN_SIGNAL_MAP.get(model_signal, "HOLD"),
             "confidence":    model_conf,
+            "policy_confidence": san_4h_raw.get("policy_confidence", model_conf),
+            "policy_confidence_source": san_4h_raw.get("policy_confidence_source", "raw"),
             "final_prob":    probs.get("UP", 0.333),
             "probs":         probs,
             "selected_news": san_4h_raw.get("selected_news", []),
@@ -1053,12 +1191,12 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
 
     alert_decision = decide_alert_multimodal_eq26(
         signal_1h=h1h["signal"],
-        confidence_1h=h1h["confidence"],
+        confidence_1h=h1h.get("policy_confidence", h1h["confidence"]),
         max_prob_1h=max(h1h["probs"].values()) if h1h["probs"] else 0.0,
         tau_1h=float(p1_thresh["tau"]),
         gamma_1h=float(p1_thresh["gamma"]),
         signal_4h=h4h["signal"],
-        confidence_4h=h4h["confidence"],
+        confidence_4h=h4h.get("policy_confidence", h4h["confidence"]),
         max_prob_4h=max(h4h["probs"].values()) if h4h["probs"] else 0.0,
         tau_4h=float(p4_thresh["tau"]),
         gamma_4h=float(p4_thresh["gamma"]),
@@ -1070,8 +1208,8 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
         "signal": alert_decision.get("signal", h1h["signal"]),
         "reason": alert_decision["reason"],
         "reasons": [
-            f"1h SAFEAlertNet: {h1h['signal']} (conf={h1h['confidence']:.3f}, p={max(h1h['probs'].values()) if h1h['probs'] else 0.0:.3f})",
-            f"4h SAFEAlertNet: {h4h['signal']} (conf={h4h['confidence']:.3f}, p={max(h4h['probs'].values()) if h4h['probs'] else 0.0:.3f})",
+            f"1h SAFEAlertNet: {h1h['signal']} (conf={h1h['confidence']:.3f}, policy_conf={h1h.get('policy_confidence', h1h['confidence']):.3f}, p={max(h1h['probs'].values()) if h1h['probs'] else 0.0:.3f})",
+            f"4h SAFEAlertNet: {h4h['signal']} (conf={h4h['confidence']:.3f}, policy_conf={h4h.get('policy_confidence', h4h['confidence']):.3f}, p={max(h4h['probs'].values()) if h4h['probs'] else 0.0:.3f})",
         ],
     }
 

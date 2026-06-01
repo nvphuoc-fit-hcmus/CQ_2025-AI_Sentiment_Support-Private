@@ -40,64 +40,22 @@ except ImportError:
     pass
 
 # ---------------------------------------------------------------------------
-# Factor keyword ontology — reused from precompute_factor_labels.py
-# Same 10 factors, same keywords for consistency.
+# Factor keyword ontology — loaded from factor_ontology.json (single source
+# of truth). This replaces the previously-duplicated hard-coded dict to
+# guarantee alignment with safe_alert_net, safe_alert_dataset, and
+# precompute_factor_labels.
 # ---------------------------------------------------------------------------
-FACTOR_KEYWORDS = {
-    "institutional_inflow": [
-        "institution", "fund", "grayscale", "microstrategy", "blackrock",
-        "corporate", "treasury", "bitcoin purchase", "acquisition", "accumul",
-        "pension", "endowment", "sovereign", "wealth fund", "adoption",
-        "purchased", "invested", "allocat",
-    ],
-    "etf_flow": [
-        "etf", "spot etf", "bitcoin etf", "sec approval", "inflow", "outflow",
-        "bitcoin fund", "crypto fund", "futures etf", "bitcoin trust",
-        "grayscale premium", "discount", "nav",
-    ],
-    "regulatory_easing": [
-        "approved", "legal", "regulatory clarity", "compliant", "licensed",
-        "framework", "clearance", "authorize", "regulation", "bill",
-        "congress", "law", "policy", "guidance", "exemption", "sandbox",
-    ],
-    "regulatory_tightening": [
-        "ban", "crackdown", "illegal", "sanction", "sec sue", "enforcement",
-        "restrict", "prohibited", "suspension", "warning", "probe",
-        "investigation", "fine", "penalty", "delist", "kyc", "aml",
-    ],
-    "exchange_risk": [
-        "hack", "exploit", "exchange down", "withdrawal halt", "insolvent",
-        "ftx", "celsius", "rug", "compromised", "security", "breach",
-        "stolen", "loss", "bankrupt", "withdrawal", "freeze", "halted",
-    ],
-    "liquidity_squeeze": [
-        "liquidity", "leverage", "liquidation", "margin call", "funding rate",
-        "squeeze", "cascade", "deleverag", "short squeeze", "long squeeze",
-        "open interest", "perp", "futures", "basis", "contango",
-    ],
-    "whale_accumulation": [
-        "whale", "transaction", "on-chain", "address", "wallet", "accumulate",
-        "hodl", "large buy", "holdings", "large transaction", "miner",
-        "mining", "cold storage", "staking", "hodler", "accumulation",
-    ],
-    "macro_uncertainty": [
-        "inflation", "fed", "interest rate", "recession", "gdp", "cpi",
-        "fomc", "yield", "economy", "growth", "rate hike", "rate cut",
-        "bank", "dollar", "usd", "dxy", "treasury", "bonds", "equity",
-    ],
-    "protocol_upgrade": [
-        "upgrade", "fork", "halving", "taproot", "merge", "protocol",
-        "layer2", "lightning", "launch", "update", "mainnet", "testnet",
-        "snapshot", "airdrop", "defi", "nft", "smart contract", "validator",
-    ],
-    "network_outage": [
-        "outage", "congestion", "fees spike", "mempool", "hash rate",
-        "51%", "network issue", "downtime", "slow", "backlog", "stuck",
-        "unconfirmed", "difficulty", "block time", "hashpower", "reorg",
-    ],
-}
-
-FACTOR_NAMES = list(FACTOR_KEYWORDS.keys())
+import json as _json
+_ONTOLOGY_PATH = Path(__file__).parent.parent / "factor_ontology.json"
+if not _ONTOLOGY_PATH.exists():
+    raise FileNotFoundError(
+        f"factor_ontology.json missing at {_ONTOLOGY_PATH}. "
+        "This file is the single source of truth for FACTOR_KEYWORDS."
+    )
+with open(_ONTOLOGY_PATH, "r", encoding="utf-8") as _f:
+    _ONTOLOGY = _json.load(_f)
+FACTOR_NAMES: list = list(_ONTOLOGY["FACTOR_NAMES"])
+FACTOR_KEYWORDS: dict = dict(_ONTOLOGY["FACTOR_KEYWORDS"])
 N_FACTORS    = len(FACTOR_NAMES)  # 10
 
 # Sentence splitter: split on ". ", "! ", "? " preserving short segments.
@@ -124,6 +82,44 @@ def _get_factor_sentences(title: str, content: str, factor_idx: int) -> list[str
         if any(kw.lower() in sent_lower for kw in keywords):
             matched.append(sent)
     return matched
+
+
+def compute_one_article_entity_sentiment(
+    title: str,
+    content: str,
+    finbert_pipeline,
+    batch_size: int = 16,
+) -> np.ndarray:
+    """R3 C3 fix: shared logic for train-time AND inference-time entity sentiment.
+
+    Given a loaded FinBERT pipeline, compute per-factor sentiment for ONE article
+    using the same algorithm as ``compute_entity_sentiment`` uses in batch. This
+    is the SINGLE SOURCE OF TRUTH so live_infer runtime path and
+    precompute_entity_sentiment.py produce numerically identical distributions.
+
+    Returns (10,) float32 in [-1, +1] — one value per factor.
+    """
+    out = np.zeros(N_FACTORS, dtype=np.float32)
+    content = content[:2000] if content else ""
+    for f_idx in range(N_FACTORS):
+        sentences = _get_factor_sentences(title, content, f_idx)
+        if not sentences:
+            out[f_idx] = 0.0
+            continue
+        sentences = sentences[:batch_size]
+        try:
+            results = finbert_pipeline(sentences)
+            pos_scores = []
+            neg_scores = []
+            for label_list in results:
+                label_dict = {r["label"].lower(): r["score"] for r in label_list}
+                pos_scores.append(label_dict.get("positive", 0.0))
+                neg_scores.append(label_dict.get("negative", 0.0))
+            net = float(np.mean(pos_scores) - np.mean(neg_scores))
+            out[f_idx] = max(-1.0, min(1.0, net))
+        except Exception:
+            out[f_idx] = 0.0
+    return out
 
 
 def compute_entity_sentiment(

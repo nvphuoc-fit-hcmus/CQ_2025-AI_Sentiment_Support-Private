@@ -1,0 +1,572 @@
+# ============================================================================
+# SAFE-Alert research-best training configuration
+# ----------------------------------------------------------------------------
+# CLI flags override values in this file. See `train_safe_alert.py --help`.
+# Hyperparameters that were module-level constants in train_safe_alert.py have
+# been promoted here so reviewers can reproduce runs without source edits.
+# ============================================================================
+
+# ── Dataset / training setup ────────────────────────────────────────────────
+symbol: BTCUSDT
+horizon: 1h                      # {15m, 1h, 4h, 24h}
+
+# Session 23 P0 #3: Multi-timeframe market input mode.
+#   true (default, paper-faithful): per-TF bar sequences (B, L_δ, d_δ) per
+#       Eq.16. Requires market_bars.npz from precompute_market_bars.py. If the
+#       file is missing, the trainer warns and auto-falls-back to scalar mode
+#       so old runs still work — but Contribution 3 stays simplified. To fully
+#       realize paper Eq.16 (Contribution 3: multi-timescale temporal
+#       learning), run:
+#           python precompute_market_bars.py --data-dir training_data/v2 \
+#                                            --symbol BTCUSDT
+#   false (ablation or legacy): scalar 63-dim feature vector (12 indicators
+#       × 5 TFs + 3 cross aggregates). Used by `w/o_bar_sequences` ablation
+#       to prove empirically that bar sequences beat scalar aggregates.
+use_bar_sequences: true
+
+# Sprint 9 — Layer 3 market encoder mode (overrides use_bar_sequences when not "auto"):
+#   "scalar" — engineered 63-dim indicators only (OLD baseline, paper Eq.18-22 path).
+#              Strong inductive bias from RSI/MACD/EMA/ATR pre-computed over 14-50 bar
+#              windows. Best for low-data regimes (~70k crypto 1h candles).
+#   "bar"    — paper-literal Eq.16: per-TF (B, L_δ, d_δ) raw OHLCV bar sequences via
+#              Conv1d encoder. Less inductive bias; needs more data to compete with
+#              engineered scalars on this dataset.
+#   "hybrid" — gated residual: u_τ = u_scalar_τ + gate ⊙ proj(u_bar_τ).
+#              gate is a per-channel learnable parameter init to 0, so training
+#              starts identical to "scalar" baseline and only adds bar contribution
+#              when the optimizer finds it helpful. Safe default for production.
+#   "auto"   — fall back to ``use_bar_sequences`` bool (legacy compat).
+market_input_mode: hybrid
+# bar_seq_len = L_δ in paper §3.5 Eq.16. Paper writes "L_δ most-recent bars at
+# timeframe δ" but does NOT specify a numeric L_δ. We choose L_δ=20 uniform
+# across all 5 timeframes for two reasons:
+#   1. 20 bars is the standard TA window for momentum/MA indicators (Bollinger
+#      20, MA20, RSI lookback 14-20). Aligns with the technical-analysis
+#      convention that financial practitioners expect.
+#   2. Uniform across TFs simplifies hyperparameter search vs per-TF L_δ. Paper
+#      §3.5 allows per-TF L_δ but uniform is a valid simplification — all 5
+#      timeframes get the same temporal context length.
+# Future work: ablation L_δ ∈ {10, 20, 40} could refine this choice; current
+# value is the conventional baseline.
+bar_seq_len: 20                  # L_δ per timeframe (paper unspecified; 20 = standard TA window)
+
+# bar_feat_dim = d_δ in paper §3.5. Paper writes "d_δ features per bar" without
+# fixing a value or feature set. We use 10 features per bar:
+#   1-5:  log(open), log(high), log(low), log(close), log(volume + 1)
+#   6:    log_return (close/prev_close)
+#   7:    body = (close - open) / open
+#   8:    upper_wick = (high - max(open, close)) / open
+#   9:    lower_wick = (min(open, close) - low) / open
+#   10:   range = (high - low) / open
+# Choice rationale: covers raw price (1-5), trend (6-7), volatility regime
+# (8-10). Matches the "log OHLCV + log_return + body + wicks + range" formula
+# referenced in DEVIATIONS §D7. d_δ=10 uniform across TFs (paper allows per-TF
+# but uniform suffices for crypto data where same OHLCV semantics apply at
+# every timeframe). Documented as engineering choice in DEVIATIONS §D7.
+bar_feat_dim: 10                 # d_δ per bar (OHLCV log + log_return + body + wicks + range)
+epochs: 60
+batch_size: 8
+lr: 3.0e-4
+grad_clip: 1.0
+device: auto                     # auto | cuda | cpu
+
+# Walk-forward CV (PDF Section 4.2.3). Set to false for fixed 70/15/15 temporal split.
+walk_forward: true
+n_folds: 5
+embargo_steps: 24                # 1h data → 24 samples = 24h embargo. (4h would use 48 = 192h = 8d)
+                                 # Phase BC v2 fold 3 had val→test Sharpe gap 0.67
+                                 # under embargo=24 (96h); 48 buffers crypto news
+                                 # aftershocks (regulatory/halving) typically 5-7d.
+                                 # 1h data → 24 samples = 24h embargo.
+                                 # For 15m data use 96 (24h).
+
+# DataLoader
+num_workers: 2
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+
+# ── Sprint 7 — balanced batch sampler ──────────────────────────────────────
+# Phase 8 closure verdict (sprint_6_phase8_closure.md): all 3 loss-knob A/Bs
+# (CW=sqrt, focal=0.2, LS=0.01) reject same NEUTRAL collapse pattern. Loss
+# weighting saturated; root cause hypothesis = small-batch (B=8) stochastic
+# class imbalance + intra-fold regime heterogeneity.
+#
+# At B=8 with ~33/33/33 direction balance, P(batch missing ≥1 class under
+# shuffle=True) ≈ 11.7 % via inclusion-exclusion (3·(2/3)^8 - 3·(1/3)^8).
+# With ~3500 batch/epoch on fold 1 train, ~411 batch/epoch lose 3-class
+# gradient signal. Combined with BTC 1h regime mix (bull/bear/sideways/
+# volatile) inside fold, direction head sees noisy 2-class gradients often
+# enough to bias toward NEUTRAL.
+#
+# When true, BalancedBatchSampler replaces shuffle=True on train loader
+# only — each batch contains ~ceil(B/3) samples per class (B=8 → quota
+# [3,3,2] rotated). Val/test stay shuffle=False (P1 #14 chronological,
+# preserves walk-forward + embargo protocol).
+#
+# Sprint 10 diagnostic default: keep sampler on after Sprint 7 showed it
+# stabilizes class exposure without changing val/test chronology.
+balanced_batch_sampler: true
+
+# Ablation — None by default. See PDF Section 5.2 for variants.
+ablation: null
+
+# Compute full explanation metrics (Del/Ins/Suff/Comp) every N epochs.
+# 1 = every epoch (old behaviour, ~3× slower validation)
+# 5 = default trade-off (faithfulness tracked weekly during training)
+explain_every: 5
+
+
+# ── Curriculum schedule (P2 #19 + R3 + Session 21 fixes) ───────────────────
+# 3-stage curriculum (PDF Section 4.5.1). Fractions of total epochs.
+curriculum:
+  stage1_end_frac: 0.20          # Stage 1: direction + return + selection
+  stage2_end_frac: 0.60          # Stage 2: warm-up Lfac + Lfaith (revert to OLD — restore S3 budget 40%)
+                                 # Stage 3 is everything after stage2_end_frac.
+  # Session 21 Fix A: Stage 3 warmup fraction. Lambdas linearly ramp from S2
+  # end values to S3 targets over this fraction of total epochs (capped at
+  # 5 epochs absolute). Without the ramp λ5 jumped 0.08→0.15 and λ6
+  # 0.15→0.20 in one step, which combined with the LR halve at Stage 3
+  # entry drove monotone val-loss climb (Fold 1 ep 29→36: 1.69→1.94). For
+  # 40-epoch runs 0.125 = 5 epochs; shorter runs hit the 5-epoch cap.
+  stage3_warmup_frac: 0.125
+  # R3 #A: stage3_lr_scale is now the Stage-3 START LR fraction of base_lr.
+  # StageAwareLRScheduler cosine-decays Stage 2 INTO this value (no warm
+  # restart artefact) and Stage 3 decays from here to ``base_lr × 0.02``.
+  # Effective floor 6e-6 (vs old CosineAnnealingWarmRestarts floor 1e-7,
+  # which crippled Stage 3 in Fold 1).
+  stage3_lr_scale: 0.5
+  # Session 22 audit fix (Fix 6): ES patience 7 → 4. Stage 3 is ~11 epochs
+  # for a 40-epoch run; patience 7 allowed val_loss to climb for 64% of S3
+  # before triggering ES. 4 catches degradation within ~36% of S3 budget.
+  # Sprint 10 anti-overfit: 12 → 6. With 30+ tuning rounds on Fold 1 the
+  # researcher-DOF risk dominates; tighter patience prevents Stage 3 from
+  # exploring late-stage degradation that the SWA tail could otherwise mask.
+  es_patience: 6                 # Sprint 10: tighten S3 anti-overfit guard
+  # Session 22 audit fix (Fix 6 + Fix 16): SWA start 0.78 → 0.85 → 0.88.
+  # Stage 2 ends at 0.70, Stage 3 warmup runs to ~0.825 (default
+  # stage3_warmup_frac=0.125), so 0.85 left only 2.5% margin that overlaps
+  # with the tail of the warmup transient. 0.88 guarantees SWA averages
+  # strictly Stage-3-steady weights, eliminating the "average of transient
+  # epochs" risk.
+  swa_start_frac: 0.88
+
+
+# ── Optimizer / regularisation ──────────────────────────────────────────────
+weight_decay: 1.0e-4
+accum_steps: 2                   # Effective batch_size = batch_size × accum_steps.
+
+
+# ── Alert policy search (P2 #19) ────────────────────────────────────────────
+policy_method: grid              # only 'grid' is supported (conformal removed in S26 — see DEVIATIONS §M3)
+# Eq.26 tau gate confidence source.
+#   raw      = paper-literal conf_head c.
+#   position = action-aware c * (1 - p_neutral), useful when raw confidence
+#              is high on NEUTRAL/HOLD and suppresses real directional alerts.
+policy_confidence_source: raw
+
+# Session 26 anti-overfit — split val temporally: first ``cal_selection_split``
+# fraction fits T + τ/γ grid, the remainder is held out and scored for early
+# stopping. Prevents the fit-and-score-on-same-data bias. Set to 1.0 to
+# disable (legacy behaviour). 0.7 holds out 30 % of val; 0.5 maximises
+# held-out honesty at the cost of T-fit stability on short val sets.
+cal_selection_split: 0.70        # Sprint 10: 0.85 → 0.70 anti-overfit. Session 27 raised
+                                 # to 0.85 to combat T-fit instability on regime shift, but
+                                 # held-out 15% (≈3.15k samples on val 21k) is too small to
+                                 # detect selection overfit on τ/γ grid after 30+ tuning
+                                 # rounds. 0.70 holds out 30% (≈6.3k) — paper §4.2.3 spirit:
+                                 # honest selection > regime-stable T-fit. Accept slightly
+                                 # noisier T (LBFGS still converges on 14k cal samples).
+
+# Session 26 — paper Eq.33 Lfac reduction mode across articles (D16):
+#   "mean" (default): (1/N_{s,t}) · Σ_i ... — stable across variable article
+#                     counts, matches engineering convention.
+#   "sum":            Σ_i ... — paper-literal Eq.33; scales with number of
+#                     articles per candle (1-50), requires λ3 retuning.
+lfac_reduction: mean
+# Sprint 1 FIX 2 — number of articles handed to the selective news layer per
+# candle. Mean ≈ 30 articles/candle, max 737 in the corpus. Prior runs used the
+# silent default 8 (constructor literal in safe_alert_dataset.py) which was
+# never wired through this YAML, so the selector only saw ~27 % of the candidate
+# pool. K=16 doubles the pool while keeping batch memory inside the T4/P100
+# envelope (B=8, K=16, 768-d FP32 ≈ 4.5 MB / batch). Increase to 24 if epoch
+# time stays acceptable; the article path forward runs twice when L_faith is
+# active so the throughput cost of K is roughly 2× that of K-only profilers.
+# Sprint 6 Phase 6 closure (2026-05-01): K=8 walk-forward fold 1 ep 1-6 showed
+# attention mechanism CONFIRMED (RawAttn +50% mass) but no trading edge transfer
+# (TradeCov=0 mọi epoch, PredDist NEUTRAL collapse persists, no breakthrough vs
+# K=16 R10c ep 6 Score=+0.0015). K-reduction wrong axis for fold 1; root cause is
+# downstream (direction-magnitude alignment per Sprint 5a, OR confidence/policy
+# gating per Phase 7). K=16+renorm preemptively ruled out (same mass-increase
+# mechanism, expected same downstream block). Reverted to K=16 default.
+articles_per_candle: 16
+# Percentile seeds for the τ/γ grid. Lower = higher coverage policies allowed.
+tau_percentile: 65               # P(conf ≥ pX) ≈ 35% at pX=65 (matches κ=0.35).
+gamma_percentile: 55             # P(max_prob ≥ pX) ≈ 45% at pX=55.
+
+# Loss-level coverage target (Eq.37): mean(conf) should reach this value.
+coverage_target: 0.35
+
+
+# ── Lambda schedule defaults (PDF Eq.30 + P1 #7 docs) ───────────────────────
+# These are the Stage 3 values; Stages 1 and 2 are linearly interpolated.
+lambdas:
+  lambda1: 1.0                   # Ldir   — direction CE
+  # Session 34 — REVERT λ2 0.25 → 0.5 về như OLD.
+  # OLD code (Sharpe 0.33-0.5) dùng λ2=0.5. S31 halve để "balance" với Ldir
+  # nhưng thực tế làm Lret signal yếu → return prediction collapse → Sharpe
+  # tan vỡ. Với S32 fix Lret target clamp [-5,5] + S33 zero-init ret_head,
+  # Lret ep 1 sẽ không spike 6.7 nữa, λ2=0.5 không dominate fusion.
+  lambda2: 0.5                   # Lret   — RESTORE OLD strong return signal
+  lambda3: 0.3                   # Lfac   — factor soft CE
+  # Phase B+C (2026-05-04) — RE-ENABLE Lsel at half paper target (paper S3=0.20).
+  # Phase B (Lfaith only, lambda6=0.05) showed Faith Comp/Del FLAT vs baseline:
+  # diagnosis = Lfaith hinge requires discriminative selector (Lsel) to mask
+  # informative evidence. With Lsel=0 selector spreads uniformly → mask vs full
+  # produces same probability → Lfaith gradient ≈ 0 regardless of λ6. Paper
+  # Eq.30 designs Lfaith↔Lsel as a coupled pair; activating one without the
+  # other is paper-broken. Re-enabling both at half paper target (λ4=0.10,
+  # λ6=0.05) tests the coupled-pair hypothesis. G1 ret_head decoupling has
+  # been reverted (verified 0 grep matches).
+  lambda4: 0.20                  # Path D — restore paper canonical (Eq.30 S3=0.20)
+  # Session 34 — REVERT λ5/λ6/λ7 về OLD levels.
+  # S26 boosted these "to make contributions visible", nhưng quá mạnh →
+  # 3 calibration losses bóp Ldir. OLD levels (0.10, 0.10, 0.05) đã đủ
+  # supervise confidence head mà không over-constrain direction head.
+  # Engineering improvements (per-factor CW, log direct, sigmoid Lsel) bù lại.
+  lambda5: 0.10                  # Lcal — REVERT to OLD (was 0.25). Sprint 4 A1 tried 0.15; rolled back because best checkpoint promotes from Stage 1 (where Lcal=0 regardless of S3 weight), so the nudge could not affect the winning checkpoint. Diagnostic [PosConf] retained.
+  # Phase B (2026-05-04) — RE-ENABLE Lfaith at half paper target (paper S3=0.10).
+  # G1 ret_head decoupling has been reverted (verified: 0 grep matches in train
+  # code). Sprint 7 balanced sampler PASSED Phase 0 canary (NEUTRAL collapse
+  # fixed: ép 3-6 N=0.36/0.47/0.14/0.31; BEST ép 5 deployable Sharpe +0.27).
+  # Stage interpolation auto handles ramp: S1=0 (hardcoded _S1_LAMBDA6),
+  # S2 ramp 0→~0.025, S3=0.05 steady. Phase B gate: faithfulness metrics
+  # (Comp/SufDrop/Del/Ins) must improve over Phase 0 baseline (Comp=0.023,
+  # Del=0.023, Ins=0.042 at BEST ép 5) WITHOUT killing val_BEST score.
+  # Pre-rollback was 0.0 since Sprint 4-R10 (G3c canary, now stale: G1 reverted).
+  lambda6: 0.10                  # Path D — restore paper canonical (Eq.30 S3=0.10)
+  lambda7: 0.05                  # Lrisk  — REVERT to OLD (was 0.10)
+  eta: 0.10                      # Lsel entropy — REVERT to OLD (was 0.18)
+  mu: 0.02                       # Coverage-penalty weight inside Lrisk.
+
+# Regularisers on Ldir.
+# Session 28 — PAPER-FAITHFUL Ldir (Eq.31 is plain weighted CE).
+# Previous over-regularization (LS 0.05 + focal γ=0.5 + anchor + L2 + CW)
+# conflicted each other → Ldir stuck 0.66-0.77, F1 ~0.28, T* blown to 60-90.
+# Conflict analysis:
+#   • label_smoothing (cap target at 0.95) vs Lcal (align conf=P(correct)):
+#     both target overconfidence; LS is blunt, Lcal is principled.
+#   • focal_gamma (amplify hard samples) vs 1h BTC returns (hard = noise):
+#     focal amplifies noise, hurts MCC.
+#   • class_weights (sqrt-softened balanced): KEEP — handles real imbalance.
+#   • logit_l2 (magnitude penalty): KEEP — orthogonal to others, targets T* drift.
+# Result: Ldir = weighted_CE + logit_l2·mean(logits²), paper-faithful.
+# Sprint 6 Phase 8 step 3 (LS=0.01) — single-knob test 2026-05-01:
+#   sqrt + focal=0.2 đều fail rollback rule ep 4-5 (NEUTRAL collapse). Phase 8
+#   step 3 isolates label_smoothing trục (chưa sampled trong Sprint 4 grid:
+#   R5 đã thử 0.02→0 đẩy về one-hot, R3/R4 lock LS=0). LS=0.01 nhẹ hơn 0.02,
+#   targets one-hot collapse pressure: target [0.00333, 0.98667, 0.00333] cho
+#   NEUTRAL — chỉ 1.3% smoothing — bias gradient nhẹ ra khỏi one-hot minimum
+#   nhưng không ép model về uniform.
+#   Gate: ep 4-6 PredDist N > 0.95 + TradeCov=0 → abort + Phase 8 closure.
+#   Phase 8 closure verdict: weight/loss knobs không đủ; tiếp theo phải đổi
+#   architecture/sampling/curriculum.
+label_smoothing_eps: 0.0         # Sprint 7 canary baseline. Phase 8 LS=0.01 was rejected and must not leak into sampler tests.
+# label_smoothing_eps: 0.0         # Phase 8 R5 — was 0.02. Hypothesis: LS=0.02 ép label về [0.0067, 0.987, 0.0067] cho NEUTRAL → model less confident on directional → easier NEUTRAL collapse. LS=0 = one-hot [0,1,0] → direction head có thể commit hơn. Rollback to 0.02 if MCC drops or NEUTRAL collapse worsens.
+                                 # confirmed in fold-1 ep 1-15 trace: F1 peaked 0.268 at
+                                 # ep 2 then drifted to 0.151 by ep 15, NeutSh=1.00 throughout.
+                                 # With focal_gamma also 0 there was zero pressure pushing
+                                 # the direction head off the one-hot NEUTRAL minimum. LS=0.02
+                                 # caps softmax targets at 0.98 → small but real gradient
+                                 # away from one-hot collapse, paper-defendable as label-
+                                 # noise tolerance near the ε_h boundary (§4.1.4).
+# label_smoothing_eps: 0.02        # Session 36 — MEANINGFUL 0.002 → 0.02.
+                                 # UNIQUE ROLE: noise-tolerance for crypto labels near ε_h boundary.
+                                 # Paper §4.1.4: ~3-5% samples have |r| close to ε_h threshold,
+                                 # creating label uncertainty (DOWN vs NEUTRAL vs UP at ±0.001-0.005).
+                                 # LS=0.02 reflects this irreducible label noise — DIFFERENT role
+                                 # than Lcal (which calibrates confidence to accuracy on CLEAN labels).
+                                 # Math: target_smooth = 0.98·one_hot + 0.02/3·uniform.
+                                 # Real impact: cap softmax at 0.98 → CE-optimal logit gap reduced
+                                 # 4.6 → 3.9 (paper-defendable bound on overconfidence).
+                                 # OLD code (Sharpe 0.33-0.5) had LS=0. We keep LS active
+                                 # for numerical stability of log-likelihood near 1.0 but
+                                 # very gentle (1% smoothing only). At 0.05 the smoothing
+                                 # combined với 3 regularizer khác over-suppress direction
+                                 # confidence. 0.01 chỉ chặn extreme overconfidence, không
+                                 # ảnh hưởng prediction quality.
+# Session 30 — RE-ENABLE focal γ=0.3 (light touch).
+# Session 28 disabled focal as "over-regularization". But smoke tests S28+S29
+# show Ldir stuck 1.10-1.13 (barely above log(3)=1.098 random baseline), F1 stuck
+# 0.211, model collapses to predicting majority class NEUTRAL. Root cause:
+#   • class_weights sqrt-softened = 1.04/0.94/1.03 (near uniform) → weak push
+#   • label_smoothing=0, entropy_anchor=0 → no minority emphasis
+#   • focal=0 → no hard-example mining
+#   → no force pushing UP/DOWN classification
+# focal γ=0.3 (was 1.0→0.5→0 across sessions) provides:
+#   • (1-p_t)^0.3 factor: mild amplification on hard samples (p_t near 1/3)
+#   • NOT as aggressive as γ=1.0 (which compounded noise)
+#   • Target: unstuck Ldir from 1.10 without regenerating S27 conflicts
+# Sprint 6 Phase 8 step 2 (focal=0.2) REJECTED 2026-05-01:
+#   Fold 1 ep 1-4 trace: ep 3 brief breakout (D=0.18, F1=0.207) then ep 4
+#   re-collapsed to NEUTRAL (N=0.96 vượt rollback rule), MCC stuck ≤0.001,
+#   TradeCov=0 mọi epoch. Pattern matches sqrt rejection (1 ep sooner).
+#   focal trục NOT a knob để escape NEUTRAL collapse on R7 regime.
+# Reverted to focal=0.3 (R4 baseline). Phase 8 step 3 = LS=0.01 (single-knob).
+focal_gamma: 0.3                 # Phase 8 step 3 — focal back to 0.3 (R4 baseline) for clean LS=0.01 isolation.
+# focal_gamma: 0.3                 # Phase 8 R4 — focal locked at 0.3 baseline (R2=0.0 and R3=0.1 both worse: monotonic interpolation, R3 PosPnL=-1.12 between R1 -0.74 and R2 -1.30). focal trục is NOT sweet-spot; 0.3 wins. recall_U=0 across R1/R2/R3 best ckpts → focal does NOT fix UP class dead → switch lever to class_weights.
+                                 # class weights drove the direction head to swing
+                                 # cross-extremes (NEUTRAL collapse → all-UP at ep 16).
+                                 # γ=0.3 is gentler: (1 - p_t)^0.3 gives a ~1.32× upweight at
+                                 # p_t=0.4 and ~0.69× at p_t=0.7. Combined with balanced
+                                 # class weights (DOWN 1.10 / NEUTRAL 0.85 / UP 1.05) this
+                                 # keeps the directional push without amplifying the
+                                 # extreme-collapse oscillation observed at γ=0.5.
+# focal_gamma: 0.3                 # Session 36 — MEANINGFUL 0.05 → 0.3.
+                                 # UNIQUE ROLE: complement class_weights with per-sample difficulty.
+                                 # class_weights (sqrt-soft 1.04/0.94/1.02) handles CLASS-LEVEL prior
+                                 # imbalance (DOWN 28.7% / NEUTRAL 41.1% / UP 30.2%).
+                                 # focal_gamma=0.3 handles SAMPLE-LEVEL difficulty (p_t low → upweight).
+                                 # Math: (1-p_t)^0.3.
+                                 #   p_t=0.4 → 0.85 (15% upweight on uncertain prediction)
+                                 #   p_t=0.7 → 0.62 (38% downweight on confident)
+                                 # Two-axis re-weighting (class × sample) is COMPLEMENTARY, not redundant.
+                                 # OLD code (Sharpe 0.33-0.5) had focal=0. We keep focal
+                                 # active for mild hard-sample emphasis but very gentle.
+                                 # γ=1.0 quá aggressive khi combined với LS+anchor+L2 →
+                                 # over-amplifies noise on hard samples. γ=0.25 cho
+                                 # (1-p_t)^0.25 ≈ 1 cho p_t < 0.5, slightly < 1 cho p_t > 0.7
+                                 # → minimal interference, vẫn nhẹ nhàng push minority.
+                                 # unlock z_fac grad (P1), Ldir gradient đã visible.
+                                 # Tăng focal 0.3→0.5 để boost minority UP/DOWN classification
+                                 # (class imbalance DOWN 28.7%, NEUTRAL 41.1%, UP 30.2%).
+                                 # class_weights (sqrt-softened 1.04/0.94/1.02) quá yếu một mình;
+                                 # focal γ=0.5 complement mild. γ=1.0 quá mạnh (S27 observed
+                                 # MCC âm), γ=0.3 quá nhẹ (S30 observed collapse to NEUTRAL).
+
+# Sprint 1.5 — class weight mode. Was hard-coded sqrt-softened (line ~1837 in
+# train_safe_alert.py). With BTC 1h class balance DOWN 28.7% / NEUTRAL 41.1%
+# / UP 30.2% the sqrt path produces 1.05 / 0.92 / 1.03 — effectively uniform —
+# and combined with focal=0 / LS=0 there was no class-level pressure pushing
+# the head away from NEUTRAL. The wire-through now exposes the choice:
+#   "none"     : all-ones (no class reweighting). Use when focal alone is enough.
+#   "sqrt"     : sklearn 'balanced' followed by sqrt + normalise. Legacy default.
+#   "balanced" : raw sklearn 'balanced' weights, normalised to mean 1.
+#                For BTC 1h (8371 DOWN / 10907 NEUTRAL / 8826 UP) that yields
+#                ~1.10 / 0.85 / 1.05. The DOWN / NEUTRAL ratio rises from
+#                ~1.14 (sqrt) to ~1.30 — roughly doubling the directional
+#                differential push without going to the raw 4× bands sklearn
+#                produces on heavily imbalanced corpora.
+# Sprint 6 Phase 8 step 1 (sqrt) REJECTED 2026-05-01:
+#   Ep 1 had direction breakout (PredDist 0/0.44/0.56, T*=1.01) but ep 2 overshoot
+#   to all-UP (PosPnL=-1.51), ep 3-6 retreated to NEUTRAL collapse (N=0.87→0.95),
+#   skipped balanced's ep 6 breakthrough. Confirms Sprint 4 R4 era verdict:
+#   sqrt softens class push too much → defaults to NEUTRAL. ε_h regime change
+#   did NOT reverse mechanism.
+# Reverted to balanced. Phase 8 step 2 trying focal_gamma=0.2 (next novel point).
+class_weights_mode: balanced
+
+# R3 #E + Session 21 Fix B/D: Anti-overconfidence entropy anchor on direction
+# predictions. Penalises mean(H(p̂)) falling BELOW target_frac × log(C).
+# Session 21 changes:
+#   (D) target_frac default 0.95 → 0.50. The old 0.95·ln(3)=1.044 target (max
+#       ln(3)=1.099) forced predictions into the 5%-of-uniform band, i.e. the
+#       model was never allowed to be confident. The post-hoc temperature
+#       scaler then fitted T up to 4.2 on validation to compensate — the
+#       opposite of the anchor's stated goal. 0.50 permits max-prob ≈ 0.70
+#       while still catching true collapse to one-hot.
+#   (B) Effective weight auto-decays as λ5 (Lcal) ramps up: at λ5=0.10 (Stage 3
+#       steady target) the anchor is fully handed off to Lcal. Avoids the
+#       multi-loss conflict where anchor pushes toward uniform while Lcal
+#       pushes conf=P(correct). No config change needed; the handoff is
+#       implemented inside MultiObjectiveLoss.
+# Set weight 0.0 to disable completely.
+entropy_anchor_weight: 0.0       # Disabled; not in the paper loss.
+                                 # Paper has no entropy anchor. OLD (Sharpe 0.27) had anchor=0.
+                                 # Lcal (Brier) handles confidence calibration paper-prescribed.
+# entropy_anchor_weight: 0.05      # Session 36 — MEANINGFUL 0.005 → 0.05.
+                                 # UNIQUE ROLE: anti-collapse PRE-CALIBRATION (Stage 1-2).
+                                 # Existing handoff logic (Session 21 Fix B) auto-decays anchor
+                                 # to 0 as λ5 ramps to 0.10. So anchor active ONLY in Stage 1-2
+                                 # when Lcal is small (< 0.10). After Stage 3 entry, anchor=0
+                                 # automatically — Lcal takes over. NO conflict with Lcal.
+                                 # Real impact in Stage 1-2: penalize H(p̂) < 0.55·ln(3) = 0.6 nats.
+                                 # Stage-aware regularization, no double-up with Lcal.
+                                 # OLD had anchor=0. We keep active but very gentle.
+                                 # 0.1 conflict mạnh với Lcal (cùng anti-overconfidence).
+                                 # 0.02 chỉ kích hoạt khi entropy < 0.5·log(C) extreme,
+                                 # complementary với Lcal chứ không conflict.
+                                 # chống overconfidence. Anchor + Lcal cùng mục đích nhưng
+                                 # conflict gradient (anchor push uniform, Lcal push conf=P(correct)).
+                                 # Tắt anchor để Lcal làm việc sạch.
+entropy_anchor_target: 0.50      # target = 0.50 × log(C) ≈ 0.55 for C=3 (unused khi weight=0)
+
+# Session 22 Fix 8: Logit-magnitude L2 penalty on L_dir.
+# Attacks the ROOT CAUSE of post-hoc temperature drift (T→4.2 observed in
+# Fold 1 log) instead of patching symptoms. Directly penalises raw logit
+# magnitude so the model can only grow logits beyond the CE-optimal
+# threshold (~3.6 for 3-class label-smoothed CE) if there's real gradient
+# pressure. Extremely small default 1e-4; typical contribution to total
+# loss << 1% but enough to stop logit runaway. Set to 0.0 to disable.
+logit_l2_weight: 0.0             # Disabled; not in the paper loss.
+                                 # Paper has no logit magnitude penalty. OLD (Sharpe 0.27) had l2=0.
+                                 # Lcal indirectly controls logit magnitude through calibration.
+# logit_l2_weight: 5.0e-5          # Session 36 — MEANINGFUL 1e-5 → 5e-5.
+                                 # UNIQUE ROLE: magnitude guard during HIGH-LR WARMUP (Stage 1).
+                                 # Stage 1 LR ramps 3e-5 → 3e-4 (10×). High LR + new data can
+                                 # blow up logit magnitude to ~10-20 (observed S22 audit T*=4.2).
+                                 # Lcal acts on calibration AFTER training; logit_l2 acts DURING
+                                 # training. Different timescales → no conflict.
+                                 # 5e-5 × mean(logits²) ≈ 5e-5 × 5 = 2.5e-4 contribution to Ldir.
+                                 # Real impact: keeps logit magnitude in CE-optimal range (~3-4).
+                                 # OLD had l2=0. We keep gentle l2 to chặn logit runaway
+                                 # extreme (T* > 5). Tại 5e-5 contribution to Ldir < 0.5%,
+                                 # purely numerical safety net.
+                                 # logit_l2=3e-4 quá mạnh sau khi disable focal+LS+anchor:
+                                 # T* = 0.87-0.92 (under 1.0 = logits TOO SMALL), Ldir stuck
+                                 # 1.13→1.10 (chỉ giảm 3%), F1 stuck 0.211.
+                                 # Trước S28 focal+LS đẩy logits lên, 1e-4 vừa đủ kiềm chế.
+                                 # Sau S28 không còn đối trọng → 3e-4 kéo logits về 0 → model
+                                 # không thể confident. 5e-5 chỉ ngăn runaway extreme
+                                 # (T*>5) nhưng không bóp model học discrimination.
+
+# Optional volatility-regression extension.
+# Earlier comments incorrectly tied this extension to the direction-label
+# equation. Keep lambda_vol=0.0 for paper-final runs; setting it above zero
+# opts into the extension.
+lambda_vol: 0.0                  # Disabled for paper-final runs; Lvol is not in the paper loss.
+                                 # Paper §4.1.4 mentions volatility as benchmark FIELD to store,
+                                 # not as auxiliary loss term. Eq.51 is the direction-label
+                                 # rule, not a volatility loss. Lvol kept architecturally
+                                 # for checkpoint schema stability (vol_head exists in net) but
+                                 # contributes 0 to total loss.
+
+
+# ── Faithfulness margin per horizon (PDF Eq.36) ─────────────────────────────
+# Faithfulness gap type.
+#   "relative" (default): margin is RELATIVE — "masking must drop predicted
+#       class probability by at least X% of its current value". Engineering
+#       improvement that equalises difficulty across confidence regimes.
+#   "absolute" (paper-literal Eq.36): margin is ABSOLUTE — "masking must drop
+#       p_full by at least X". Use this for strict paper reproduction; retune
+#       margins (~0.15 absolute) when switching to this mode.
+# Sprint 4-R10c (Path A) — RESTORED to 0.1 after R10 walk-forward regression.
+# R10 result (2026-05-01, full disable): test_pnl -0.857 -> -3.871 (4.5x worse),
+# variance 8x. Fold 2 ep 1-2 catastrophic all-DOWN collapse (TradeCov=1.0,
+# PosPnL=-1.5/epoch). G2 canary had flagged LretSign as a capacity-level blocker
+# under G1 (128 samples x 100 ep x lr=1e-3), but that verdict did not transfer
+# cleanly to budget-constrained walk-forward training (28k-49k samples x 12 ep
+# x lr=3e-4 + curriculum). Path A tests the hypothesis that LretSign still acts
+# as useful directional regularization in real training while G1 decouples Lret's
+# trunk gradient. Lesson: canary capacity verdict != walk-forward deployment
+# verdict. R10c keeps G1 ret_head decoupling + Lsel/Lfaith drops (G3c/d blockers)
+# and restores LretSign=0.1 (R8 level) as the single-knob walk-forward test.
+lret_sign_weight: 0.1
+lret_sign_eps_factor: 1.0
+
+# ── ε_h neutral-band override (Sprint 4 Phase 8.5 R7) ───────────────────────
+# Paper canonical (Table 2): 1h → 0.002. Phase 8.5 label diagnostic
+# (phase8_5_label_diag.py output 2026-04-29) showed:
+#   • Fold 2 val with eps=0.002 carries 53.2% NEUTRAL labels vs train 37.4%
+#     — heavy regime shift (samples 49206-59720 sit in BTC sideways window
+#     with peak rolling-N density 62.8%).
+#   • Tightening eps 0.002 → 0.0015 rebalances fold 2 val to D=27.7/N=42.7/U=29.6
+#     (vs 22.3/53.2/24.5) without inducing the boundary-noise inflation that
+#     eps=0.001 causes (22.25% of |r|<0.001 are true wiggles).
+# When set, the SAME value flows into BOTH safe_alert_dataset (direction
+# label boundary) AND MultiObjectiveLoss.set_horizon (Lret_sign nonzero
+# mask). Single source of truth via constants.get_epsilon_h prevents
+# asymmetric supervision on samples in [override, paper] band.
+# Set to null (or comment out) to restore paper-canonical behaviour.
+# Range validation: [0.0001, 0.05] enforced inside constants.get_epsilon_h.
+epsilon_h_override: 0.0015          # 1h Phase 8.5 R7 — fold 2 regime fix (53% N → 42.7% N), test_pnl +60%
+# epsilon_h_override: null          # paper canonical 0.002. Switch back to null for 4h/24h runs.
+
+# ── Sprint 4-D auxiliary binary return-sign classification head ────────────
+# Phase 8.7 audit (2026-04-30) showed ret_pred regression head collapses to
+# near-zero magnitude (std ≈ 0.0001 vs target std ≈ 0.009; sign_acc ≈ 0.50
+# = random). Lret_sign hinge above shares gradient with SmoothL1 magnitude
+# regression and cannot dominate it without crashing magnitude learning.
+# Sprint 4-D adds a SEPARATE binary head (ret_sign_head in safe_alert_net)
+# trained by BCEWithLogitsLoss on samples with |ret_label| > eps_h. Active
+# only when this weight is > 0; head outputs are computed every forward
+# but the loss term is zero when disabled (preserves R7/R8 backward compat).
+# 2-step rollout per Sprint 4-D plan:
+# R9 result: ret_sign_head was wired correctly but LretCls stayed at random
+# BCE baseline (~0.693) and cross-fold economics regressed. Keep the code path
+# dormant; active research baseline is R8 (epsilon_h_override=0.0015 +
+# lret_sign_weight=0.1).
+lambda_ret_sign_cls: 0.0            # Sprint 4-D rejected — disabled for R8 baseline
+
+# ── Sprint 5a auxiliary tradability bin head ──────────────────────────────
+# Direction-INDEPENDENT 3-class magnitude classification on |ret_label|:
+#   bin 0 = no_edge       : |ret| ≤ ε_h            (noise/cost band)
+#   bin 1 = marginal_edge : ε_h < |ret| < 2·ε_h    (move present but thin)
+#   bin 2 = strong_edge   : |ret| ≥ 2·ε_h          (clear tradeable amplitude)
+# Goal: provide a tradability signal independent of dir_head's UP/DOWN/N
+# prediction, so policy can filter "high-confidence direction but small
+# magnitude" candles. Curriculum ramp (in _update_loss_weights_for_stage):
+#   Stage 1: 0.0
+#   Stage 2 end: 0.5 × this YAML value
+#   Stage 3: this YAML value (steady target)
+# Sprint 5a CLOSED (2026-05-01) — direction-independent magnitude head
+# learns magnitude (StrongPrec ~0.65) but doesn't align with direction
+# (DirAccOnStrong ~0.29 = random) on walk-forward. Both λ=0.10 and
+# λ=0.05 hit same architectural floor; lower dose did NOT change DirAcc.
+# Disabled: head outputs still computed (stable schema, code-path preserved
+# for future Sprint 5-RetHead reuse) but no loss contribution. See
+# sprint_5a_closure.md memory for full negative-result analysis.
+# DO NOT re-enable without first redesigning to direction-aware variant
+# (Option A: direction-conditioned edge head, OR Option B: two-head
+# up_edge + down_edge split). Magnitude-only is empirically dead-end here.
+lambda_ret_bin: 0.0
+
+# Optional binary UP/DOWN edge heads. Defaults stay OFF for paper-final runs.
+lambda_up_edge: 0.0
+lambda_down_edge: 0.0
+
+lfaith_gap_type: relative
+faith_margin:
+  "15m": 0.08                    # 8% (relative) or 0.08 absolute drop
+  "1h":  0.12                    # 12%
+  "4h":  0.20                    # 20% — Phase BC v2 audit (2026-05-04): bumped
+                                 # from 0.15. Cross-fold Comp=0.036±0.027
+                                 # (std/mean=0.75 noisy). Stronger hinge gradient
+                                 # forces selector to mask informative evidence
+                                 # → clearer Comp/Suff_drop metrics for §4.4.2.
+  "24h": 0.18                    # 18%
+
+
+# ── Per-horizon top-K article selection (PDF Section 3.3.2) ─────────────────
+top_k:
+  K_15m: 3                       # 30-min breaking window, tight Top-K
+  K_1h:  4
+  K_4h:  5
+  K_24h: 8                       # wider macro window tolerates more evidence
+
+
+# ── Data temporal consistency (PDF Section 4.1.3) ───────────────────────────
+# Articles are only visible to the model at published_at + ingest_delay_minutes.
+# Simulates the crawler→ML pipeline delay that exists in production. Default 15
+# min is conservative for crypto news crawlers; set to 0 to disable.
+ingest_delay_minutes: 15
+
+
+# ── Model selection score weights (R3 #I1) ──────────────────────────────────
+# compute_model_selection_score uses these to rank checkpoints during early
+# stopping and best-model promotion. Defaults reflect paper Section 4.5.1.
+# Override to bias selection: academic emphasis on F1 vs trading emphasis on
+# Sharpe. Weights do NOT need to sum to 1.
+#
+# Fold 1 observation (Aug 2024): with defaults, ep 12 (F1=0.472 best) lost to
+# ep 15 (F1=0.451, Sharpe=0.426) because Sharpe weight 0.35 rewarded the
+# higher Sharpe. To invert (prioritise F1 purity), set f1=0.55, sharpe=0.15.
+selection_weights:
+  f1:     0.40
+  sharpe: 0.35
+  ece:    0.15
+  mcc:    0.10
+  # Sprint 12 rollback (2026-05-04): direct PnL bonus caused high-volume,
+  # one-sided checkpoints to win selection and degraded cross-fold test PnL.
+  # Keep the code path available for diagnostics, but restore legacy scoring.
+  pnl:    0.0
