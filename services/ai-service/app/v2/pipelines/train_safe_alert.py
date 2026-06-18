@@ -4081,6 +4081,9 @@ def main():
                         help="Confidence stream for Eq.26 tau gate: raw conf_head or "
                              "position confidence c*(1-p_neutral).")
     parser.add_argument("--n_folds",         type=int,   default=cfg.get("n_folds", 5))
+    parser.add_argument("--start_fold",      type=int,   default=1,
+                        help="Start from this fold number (1-indexed). Use to resume "
+                             "after partial walk-forward (e.g. --start_fold 4 skips folds 1-3).")
     parser.add_argument("--embargo_steps",   type=int,   default=cfg.get("embargo_steps", 24),
                         help="Samples to skip between train end and val start (embargo, "
                              "default 24 = 24h for 1h data). For 15m data use 96 (=24h). "
@@ -4488,7 +4491,11 @@ def main():
             n_folds=n_folds,
             embargo_steps=embargo_steps,
         ))
+        start_fold = getattr(args, "start_fold", 1)
         for fold_idx, (train_indices, val_indices, test_indices) in enumerate(folds, start=1):
+            if fold_idx < start_fold:
+                print(f"[FOLD {fold_idx}/{len(folds)}] Skipping (--start_fold={start_fold})")
+                continue
             print(f"[FOLD {fold_idx}/{len(folds)}] "
                   f"train=0-{train_indices[-1]} ({len(train_indices)} samples) | "
                   f"embargo={embargo_steps} steps | "

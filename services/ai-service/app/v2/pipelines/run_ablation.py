@@ -611,6 +611,8 @@ def build_loaders(candle_df, embeddings, articles_df, precomp, factor_labels, en
     """
     from torch.utils.data import Subset, DataLoader
 
+    import train_safe_alert as _ts_ref
+    _eps_override = getattr(_ts_ref, '_EPSILON_H_OVERRIDE', None)
     dataset = SAFEAlertDataset(
         candle_df=candle_df,
         article_embeddings=embeddings,
@@ -622,6 +624,7 @@ def build_loaders(candle_df, embeddings, articles_df, precomp, factor_labels, en
         factor_labels=factor_labels,
         entity_sentiment=entity_sentiment,
         market_bars=market_bars if getattr(args, "use_bar_sequences", True) else None,
+        epsilon_h_override=_eps_override,  # match canonical training config
     )
 
     train_size = int(0.7 * len(dataset))
@@ -841,6 +844,9 @@ def main():
     script_file  = Path(__file__).resolve()
     service_root = script_file.parent.parent.parent.parent
     default_data = service_root / "training_data"
+    parser.add_argument("--walk_forward",    action="store_true", default=False)
+    parser.add_argument("--n_folds",         type=int,   default=4)
+    parser.add_argument("--embargo_steps",   type=int,   default=24)
     parser.add_argument("--data_path",       type=Path,  default=default_data)
     parser.add_argument("--embeddings_path", type=Path,  default=default_data)
     parser.add_argument("--use_bar_sequences", dest="use_bar_sequences",
@@ -895,31 +901,54 @@ def main():
     # Dataset handle is returned so every trainer.fit() can snapshot its
     # scaler/return-scale state into the variant checkpoint (P0 #1 parity).
     candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment, market_bars = load_data(args)
-    train_loader, val_loader, test_loader, dataset = build_loaders(
-        candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment,
-        market_bars, args, args.horizon
-    )
-
-    results: Dict[str, Dict] = {}
-
-    # Determine which variants to run
     requested = set(args.variants) if args.variants else None
 
-    # --- Full model first (baseline reference) ---
-    if requested is None or "full_model" in requested:
-        results["full_model"] = run_full_model(
-            train_loader, val_loader, test_loader, args, dataset=dataset,
-        )
+    def _run_all_variants(train_loader, val_loader, test_loader, dataset):
+        res = {}
+        if requested is None or "full_model" in requested:
+            res["full_model"] = run_full_model(train_loader, val_loader, test_loader, args, dataset=dataset)
+        for (vname, desc, aflag, l6, l7) in ABLATION_VARIANTS:
+            if requested is not None and vname not in requested:
+                continue
+            print(f"\n[INFO] {desc}")
+            res[vname] = run_variant(vname, aflag, l6, l7, train_loader, val_loader, test_loader, args, dataset=dataset)
+        return res
 
-    # --- Ablation variants ---
-    for (variant_name, description, ablation_flag, lambda6_force, lambda7_force) in ABLATION_VARIANTS:
-        if requested is not None and variant_name not in requested:
-            continue
-        print(f"\n[INFO] {description}")
-        results[variant_name] = run_variant(
-            variant_name, ablation_flag, lambda6_force, lambda7_force,
-            train_loader, val_loader, test_loader, args, dataset=dataset,
+    if args.walk_forward:
+        from train_safe_alert import walk_forward_split
+        from torch.utils.data import Subset, DataLoader as _DL
+        _, _, _, dataset = build_loaders(candle_df, embeddings, articles_df, precomp,
+                                         factor_labels, entity_sentiment, market_bars, args, args.horizon)
+        folds = list(walk_forward_split(len(dataset), n_folds=args.n_folds, embargo_steps=args.embargo_steps))
+        print(f"[WALK-FORWARD] {args.n_folds} folds | embargo={args.embargo_steps}")
+
+        fold_results_all: Dict[str, list] = {}
+        for fold_idx, (train_idx, val_idx, test_idx) in enumerate(folds, start=1):
+            print(f"\n{'='*60}\n  FOLD {fold_idx}/{len(folds)}\n{'='*60}")
+            dataset.fit_market_scaler(train_idx)
+            tr = _DL(Subset(dataset, train_idx), batch_size=args.batch_size, shuffle=True,  num_workers=0)
+            vl = _DL(Subset(dataset, val_idx),   batch_size=args.batch_size, shuffle=False, num_workers=0)
+            te = _DL(Subset(dataset, test_idx),  batch_size=args.batch_size, shuffle=False, num_workers=0)
+            fold_res = _run_all_variants(tr, vl, te, dataset)
+            for name, metrics in fold_res.items():
+                fold_results_all.setdefault(name, []).append(metrics)
+
+        results: Dict[str, Dict] = {}
+        for name, fold_list in fold_results_all.items():
+            agg = {}
+            keys = [k for k in fold_list[0] if isinstance(fold_list[0][k], (int, float))]
+            for k in keys:
+                vals = [f[k] for f in fold_list if k in f]
+                agg[k] = float(np.mean(vals))
+                agg[f"{k}_std"] = float(np.std(vals, ddof=1) if len(vals) > 1 else 0.0)
+            results[name] = agg
+        print("\n[WALK-FORWARD] Aggregated over all folds.")
+    else:
+        train_loader, val_loader, test_loader, dataset = build_loaders(
+            candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment,
+            market_bars, args, args.horizon
         )
+        results = _run_all_variants(train_loader, val_loader, test_loader, dataset)
 
     # --- Print summary ---
     print_summary_table(results)
@@ -932,10 +961,11 @@ def main():
 
     json_results = {k: _to_serialisable(v) for k, v in results.items()}
     json_results["_meta"] = {
-        "symbol":  args.symbol,
-        "horizon": args.horizon,
-        "epochs":  args.epochs,
-        "device":  args.device,
+        "symbol":   args.symbol,
+        "horizon":  args.horizon,
+        "epochs":   args.epochs,
+        "device":   args.device,
+        "protocol": f"walk_forward_{args.n_folds}fold" if args.walk_forward else "single_split_70_15_15",
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

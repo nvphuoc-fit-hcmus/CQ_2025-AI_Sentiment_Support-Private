@@ -1,11 +1,17 @@
 """
-Backtest SAFE-Alert trained model & generate Bảng 3/4/5 comparison tables.
+Backtest SAFE-Alert trained model & generate paper comparison tables.
 
 Implements walk-forward validation on test set:
 - Test set: 6,959 samples (15% of 46,387)
 - Metrics: Sharpe, Sortino, Calmar, max_dd, win_rate, PnL
+
+New in this version:
+- Cost-sensitivity table: fee ∈ {2,5,10} bps × slippage ∈ {1,5,10} bps
+- Uses mini_backtest (same function as training policy search) for consistency
+- --output_json flag for structured JSON output
 """
 
+import sys
 import torch
 import numpy as np
 import pandas as pd
@@ -13,6 +19,10 @@ from pathlib import Path
 from typing import Optional
 import json
 from collections import defaultdict
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPT_DIR.parent))
+sys.path.insert(0, str(_SCRIPT_DIR))
 
 # Use relative paths from script location (portable)
 SCRIPT_FILE = Path(__file__).resolve()  # Absolute path
@@ -432,8 +442,58 @@ def _select_candle_file(data_dir: Path, symbol: str, horizon: str) -> Path:
     return chosen
 
 
+_COST_GRID_FEES      = [2, 5, 10]   # bps
+_COST_GRID_SLIPPAGES = [1, 5, 10]   # bps
+_BPS                 = 1e-4
+
+
+def _run_cost_grid(confidence: np.ndarray, preds: np.ndarray,
+                   ret_labels: np.ndarray, dir_probs: np.ndarray,
+                   tau: float, gamma: float) -> dict:
+    """3×3 cost-sensitivity table using mini_backtest (matches training policy search)."""
+    try:
+        from metrics_safe_alert import mini_backtest as _mb
+    except ImportError:
+        return {}
+
+    table: dict[str, dict] = {}
+    for fee_bps in _COST_GRID_FEES:
+        for slip_bps in _COST_GRID_SLIPPAGES:
+            bt = _mb(
+                confidence, preds, ret_labels,
+                tau=tau, gamma=gamma, dir_probs=dir_probs,
+                transaction_cost=fee_bps * _BPS,
+                slippage=slip_bps * _BPS,
+            )
+            table[f"fee_{fee_bps}bps_slip_{slip_bps}bps"] = {
+                "fee_bps":           fee_bps,
+                "slippage_bps":      slip_bps,
+                "alert_sharpe":      bt.get("alert_sharpe", 0.0),
+                "alert_sortino":     bt.get("alert_sortino", 0.0),
+                "alert_calmar":      bt.get("alert_calmar", 0.0),
+                "alert_max_dd":      bt.get("alert_max_dd", 0.0),
+                "pnl":               bt.get("pnl", 0.0),
+                "alert_hit_rate":    bt.get("alert_hit_rate", 0.0),
+                "alert_coverage":    bt.get("alert_coverage", 0.0),
+                "n_position_alerts": int(bt.get("n_position_alerts", 0)),
+            }
+
+    # Print compact table
+    print(f"\n{'':>22s}" + "".join(f"  slip={s:>2d}bps" for s in _COST_GRID_SLIPPAGES))
+    for metric in ("alert_sharpe", "pnl", "alert_hit_rate"):
+        print(f"\n  {metric}")
+        for fee_bps in _COST_GRID_FEES:
+            row = f"  fee={fee_bps:>2d}bps |"
+            for slip_bps in _COST_GRID_SLIPPAGES:
+                val = table[f"fee_{fee_bps}bps_slip_{slip_bps}bps"][metric]
+                row += f"  {val:>9.4f}"
+            print(row)
+    return table
+
+
 def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
-             policy_json: Optional[Path] = None, allow_short: bool = True):
+             policy_json: Optional[Path] = None, allow_short: bool = True,
+             output_json: Optional[Path] = None):
     """Run backtest on test set with REAL model predictions."""
 
     print("\n" + "="*70)
@@ -688,10 +748,33 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
         }
     }
 
-    with open(artifact_dir / "backtest_metrics.json", "w") as f:
+    save_path = output_json or (artifact_dir / "backtest_metrics.json")
+    with open(save_path, "w") as f:
         json.dump(metrics_json, f, indent=2)
+    print(f"\n  - {save_path}")
 
-    print(f"\n  - {artifact_dir}/backtest_metrics.json")
+    # ── Cost-sensitivity table (fee × slippage grid, using mini_backtest) ───
+    if policy:
+        tau_val   = float(policy.get("tau", 0.5))
+        gamma_val = float(policy.get("gamma", 0.5))
+        confidence_arr = np.array(all_confidence, dtype=np.float32)
+        max_prob_arr   = np.array(all_max_prob, dtype=np.float32)
+        # dir_probs: stack max_prob per class into (N, 3) using a fallback
+        # (full per-class probs are not stored; max_prob column is sufficient
+        # for mini_backtest's gamma threshold with dir_probs=None fallback)
+        print("\n[COST SENSITIVITY] fee ∈ {2,5,10} bps × slippage ∈ {1,5,10} bps")
+        preds_arr = np.array(all_predictions, dtype=np.int64)
+        cost_table = _run_cost_grid(
+            confidence_arr, preds_arr, all_returns[:len(preds_arr)],
+            dir_probs=None,   # use confidence as max_prob proxy
+            tau=tau_val, gamma=gamma_val,
+        )
+        metrics_json["cost_sensitivity"] = {k: {ck: float(cv) if isinstance(cv, (np.floating, float)) else cv
+                                                  for ck, cv in v.items()}
+                                              for k, v in cost_table.items()}
+        # Overwrite with extended JSON
+        with open(save_path, "w") as f:
+            json.dump(metrics_json, f, indent=2)
 
     print("\n[COMPLETE] Real backtest done!")
     return table3, table4, table5
@@ -714,7 +797,11 @@ if __name__ == "__main__":
     parser.add_argument("--long_only", action="store_true",
                         help="Long-only strategy (spot). Default: long+short, "
                              "matches mini_backtest used during τ/γ search.")
+    parser.add_argument("--output_json", type=Path, default=None,
+                        help="Path for backtest metrics JSON output. "
+                             "Default: artifact_dir/backtest_metrics.json")
 
     args = parser.parse_args()
     backtest(args.artifact_dir, args.data_dir, args.symbol, args.horizon,
-             args.policy_json, allow_short=not args.long_only)
+             args.policy_json, allow_short=not args.long_only,
+             output_json=args.output_json)

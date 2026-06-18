@@ -1,0 +1,14 @@
+{
+  "tau": 0.6103135896497927,
+  "gamma": 0.5363488083716443,
+  "temperature": 1.5931334495544434,
+  "coverage": 0.3951715374841169,
+  "alert_precision": 0.6784566044807434,
+  "alert_sharpe": 0.6007307743007617,
+  "score": 0.5321565183680578,
+  "source": "swa_validation",
+  "swa_start_epoch": 35,
+  "symbol": "BTCUSDT",
+  "horizon": "1h",
+  "note": "Thresholds tuned on SWA-averaged weights; use with the *_swa.pt or FINAL checkpoint when FINAL source=swa."
+}

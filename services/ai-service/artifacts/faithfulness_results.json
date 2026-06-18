@@ -1,0 +1,69 @@
+{
+  "occlusion_test": {
+    "test_name": "occlusion",
+    "num_samples": 3200,
+    "gap_mean": -0.005090602207928896,
+    "gap_std": 0.05355334281921387,
+    "gap_min": -0.3051825165748596,
+    "gap_max": 0.2449299395084381,
+    "gap_median": -0.005894333124160767,
+    "fidelity_ratio": 0.0078125,
+    "direction_change_ratio": 0.09718749672174454,
+    "margin": 0.15
+  },
+  "insertion_test": {
+    "test_name": "insertion",
+    "num_samples": 1600,
+    "insertion_lift_mean": 0.08526349067687988,
+    "insertion_lift_std": 0.10070742666721344,
+    "insertion_lift_median": 0.06385122239589691,
+    "insertion_ratio_positive": 0.79375
+  },
+  "sufficiency_test": {
+    "test_name": "sufficiency",
+    "num_samples": 3200,
+    "confidence_drop_mean": -0.0013964107492938638,
+    "confidence_drop_median": -0.002939879894256592
+  },
+  "comprehensiveness_test": {
+    "test_name": "comprehensiveness",
+    "num_samples": 3200,
+    "confidence_drop_mean": -0.005090602207928896,
+    "confidence_drop_median": -0.005894333124160767
+  },
+  "factor_consistency_test": {
+    "test_name": "factor_consistency",
+    "num_samples": 1600,
+    "jaccard_mean": 1.0,
+    "jaccard_median": 1.0
+  },
+  "fidelity_metric": {
+    "test_name": "fidelity_metric",
+    "num_samples": 25600,
+    "fidelity_correlation": -0.02700970082568647,
+    "fidelity_pvalue": null
+  },
+  "random_k_comparison": {
+    "test_name": "random_k_comparison",
+    "num_samples": 3200,
+    "safe_gap_mean": -0.005090602207928896,
+    "safe_gap_median": -0.005894333124160767,
+    "random_gap_mean": -0.00400763563811779,
+    "random_gap_median": -0.005343541502952576,
+    "selector_lift": -0.0010829665698111057,
+    "selector_better_ratio": 0.4475
+  },
+  "most_recent_k_comparison": {
+    "test_name": "most_recent_k_comparison",
+    "num_samples": 3200,
+    "safe_gap_mean": -0.005090602207928896,
+    "safe_gap_median": -0.005894333124160767,
+    "recent_gap_mean": -0.004633275326341391,
+    "recent_gap_median": -0.006392225623130798,
+    "selector_lift": -0.00045732688158750534,
+    "selector_better_ratio": 0.4425
+  },
+  "horizon": "1h",
+  "symbol": "BTCUSDT",
+  "model_path": "artifacts\\fold_4\\safe_alert_1h_FINAL.pt"
+}

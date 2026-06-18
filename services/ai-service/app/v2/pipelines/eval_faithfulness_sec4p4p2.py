@@ -346,6 +346,149 @@ class FaithfulnessEvaluator:
         }
 
 
+    def random_k_test(self, test_loader: DataLoader, num_batches: int = 100) -> dict:
+        """Compare SAFE-Alert's selected-K vs random-K occlusion gap.
+
+        Protocol (CaiTien.md Section 6):
+          For each sample, compute two occlusion gaps:
+            1. safe_gap  = max_prob(full) - max_prob(mask_safe_selected)
+            2. random_gap = max_prob(full) - max_prob(mask_random_K)
+          If safe_gap > random_gap on average, the selector is not just
+          picking arbitrary articles — it finds the informative ones.
+        """
+        safe_gaps, random_gaps = [], []
+        rng = torch.Generator()
+        rng.manual_seed(42)
+
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(test_loader):
+                if batch_idx >= num_batches:
+                    break
+                market_feat  = batch["market_features"].to(self.device)
+                article_emb  = batch["article_embeddings"].to(self.device)
+                article_meta = batch["article_metadata"].to(self.device)
+                article_mask = batch["article_mask"].to(self.device)
+
+                out_full = self._forward(market_feat, article_emb, article_mask, article_meta)
+                attn = out_full.get("attn_weights")
+                if attn is None:
+                    continue
+
+                full_max = self._max_prob_from_logits(out_full["dir_logits"])
+
+                # Gap 1: SAFE-Alert's selected-K (same as comprehensiveness)
+                safe_mask = self._selected_mask(attn, article_mask)
+                unsel_mask = article_mask.bool() & ~safe_mask
+                out_safe = self._forward(market_feat, article_emb, unsel_mask.float(), article_meta)
+                safe_gap = (full_max - self._max_prob_from_logits(out_safe["dir_logits"])).cpu().numpy()
+
+                # Gap 2: Random-K articles (same K_h count, randomly chosen)
+                k_h = self.model.K_h_map.get(self.horizon, 3)
+                B, K = article_mask.shape
+                random_sel = torch.zeros_like(article_mask, dtype=torch.bool)
+                for b in range(B):
+                    valid_idx = article_mask[b].bool().nonzero(as_tuple=False).squeeze(-1)
+                    n_valid = valid_idx.numel()
+                    if n_valid == 0:
+                        continue
+                    k_pick = min(k_h, n_valid)
+                    perm = torch.randperm(n_valid, generator=rng)[:k_pick]
+                    chosen = valid_idx[perm]
+                    random_sel[b, chosen] = True
+
+                unsel_random = article_mask.bool() & ~random_sel
+                out_random = self._forward(market_feat, article_emb, unsel_random.float(), article_meta)
+                rand_gap = (full_max - self._max_prob_from_logits(out_random["dir_logits"])).cpu().numpy()
+
+                safe_gaps.extend(safe_gap)
+                random_gaps.extend(rand_gap)
+
+        safe_gaps   = np.asarray(safe_gaps,   dtype=np.float32)
+        random_gaps = np.asarray(random_gaps, dtype=np.float32)
+        if safe_gaps.size == 0:
+            return {"test_name": "random_k_comparison", "num_samples": 0,
+                    "safe_gap_mean": 0.0, "random_gap_mean": 0.0, "selector_lift": 0.0}
+
+        selector_lift = float(safe_gaps.mean() - random_gaps.mean())
+        return {
+            "test_name":        "random_k_comparison",
+            "num_samples":      int(safe_gaps.size),
+            "safe_gap_mean":    float(safe_gaps.mean()),
+            "safe_gap_median":  float(np.median(safe_gaps)),
+            "random_gap_mean":  float(random_gaps.mean()),
+            "random_gap_median": float(np.median(random_gaps)),
+            "selector_lift":    selector_lift,
+            "selector_better_ratio": float((safe_gaps > random_gaps).mean()),
+        }
+
+    def most_recent_k_test(self, test_loader: DataLoader, num_batches: int = 100) -> dict:
+        """Compare SAFE-Alert's selected-K vs K most-recent articles.
+
+        Protocol (CaiTien.md Section 6):
+          Assumes articles in batch are ordered most-recent-first (index 0 = newest).
+          Occlusion gap using most-recent-K vs SAFE-Alert's selected-K.
+          If safe_gap > recent_gap, selector beats the simple recency heuristic.
+        """
+        safe_gaps, recent_gaps = [], []
+
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(test_loader):
+                if batch_idx >= num_batches:
+                    break
+                market_feat  = batch["market_features"].to(self.device)
+                article_emb  = batch["article_embeddings"].to(self.device)
+                article_meta = batch["article_metadata"].to(self.device)
+                article_mask = batch["article_mask"].to(self.device)
+
+                out_full = self._forward(market_feat, article_emb, article_mask, article_meta)
+                attn = out_full.get("attn_weights")
+                if attn is None:
+                    continue
+
+                full_max = self._max_prob_from_logits(out_full["dir_logits"])
+                k_h = self.model.K_h_map.get(self.horizon, 3)
+
+                # Gap 1: SAFE-Alert's selected-K
+                safe_mask = self._selected_mask(attn, article_mask)
+                unsel_mask = article_mask.bool() & ~safe_mask
+                out_safe = self._forward(market_feat, article_emb, unsel_mask.float(), article_meta)
+                safe_gap = (full_max - self._max_prob_from_logits(out_safe["dir_logits"])).cpu().numpy()
+
+                # Gap 2: Most-recent-K (first K_h valid indices in sequence)
+                B, K = article_mask.shape
+                recent_sel = torch.zeros_like(article_mask, dtype=torch.bool)
+                for b in range(B):
+                    valid_idx = article_mask[b].bool().nonzero(as_tuple=False).squeeze(-1)
+                    k_pick = min(k_h, valid_idx.numel())
+                    if k_pick > 0:
+                        recent_sel[b, valid_idx[:k_pick]] = True
+
+                unsel_recent = article_mask.bool() & ~recent_sel
+                out_recent = self._forward(market_feat, article_emb, unsel_recent.float(), article_meta)
+                rec_gap = (full_max - self._max_prob_from_logits(out_recent["dir_logits"])).cpu().numpy()
+
+                safe_gaps.extend(safe_gap)
+                recent_gaps.extend(rec_gap)
+
+        safe_gaps   = np.asarray(safe_gaps,   dtype=np.float32)
+        recent_gaps = np.asarray(recent_gaps, dtype=np.float32)
+        if safe_gaps.size == 0:
+            return {"test_name": "most_recent_k_comparison", "num_samples": 0,
+                    "safe_gap_mean": 0.0, "recent_gap_mean": 0.0, "selector_lift": 0.0}
+
+        selector_lift = float(safe_gaps.mean() - recent_gaps.mean())
+        return {
+            "test_name":         "most_recent_k_comparison",
+            "num_samples":       int(safe_gaps.size),
+            "safe_gap_mean":     float(safe_gaps.mean()),
+            "safe_gap_median":   float(np.median(safe_gaps)),
+            "recent_gap_mean":   float(recent_gaps.mean()),
+            "recent_gap_median": float(np.median(recent_gaps)),
+            "selector_lift":     selector_lift,
+            "selector_better_ratio": float((safe_gaps > recent_gaps).mean()),
+        }
+
+
 def _load_checkpoint(model: SAFEAlertNet, model_path: Path, device: str) -> None:
     # strict=False keeps this evaluator tolerant to checkpoint schema drift.
     # Missing / unexpected keys are surfaced via RuntimeWarning.
@@ -370,6 +513,11 @@ def _load_checkpoint(model: SAFEAlertNet, model_path: Path, device: str) -> None
 
 def _build_eval_loader(args: argparse.Namespace) -> DataLoader:
     candle_df = pd.read_csv(args.candles_csv)
+    if "timestamp" not in candle_df.columns:
+        for col in ["datetime", "date", "time", "open_time"]:
+            if col in candle_df.columns:
+                candle_df = candle_df.rename(columns={col: "timestamp"})
+                break
     candle_df["timestamp"] = pd.to_datetime(candle_df["timestamp"], errors="coerce")
     if args.max_candle_ts:
         candle_df = candle_df[candle_df["timestamp"] <= pd.Timestamp(args.max_candle_ts)].reset_index(drop=True)
@@ -404,6 +552,7 @@ def _build_eval_loader(args: argparse.Namespace) -> DataLoader:
         precomputed_features=precomputed_features,
         factor_labels=factor_labels,
         entity_sentiment=entity_sentiment,
+        epsilon_h_override=getattr(args, "epsilon_h_override", None),
     )
 
     n = len(dataset)
@@ -423,6 +572,7 @@ def main() -> None:
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_batches", type=int, default=100)
     parser.add_argument("--margin", type=float, default=0.15)
+    parser.add_argument("--epsilon_h_override", type=float, default=0.0015)
     parser.add_argument("--eval_tail_ratio", type=float, default=0.8)
     parser.add_argument("--max_candle_ts", type=str, default="")
     parser.add_argument("--output_json", type=Path, default=Path("app/v2/artifacts/v2/faithfulness_eval_sec4p4p2.json"))
@@ -453,7 +603,8 @@ def main() -> None:
         if args.entity_sentiment_npy == default_data / "article_entity_sentiment.npy":
             args.entity_sentiment_npy = default_data_v2 / "article_entity_sentiment.npy"
 
-    model = SAFEAlertNet(market_dim=63, has_news=True)
+    model = SAFEAlertNet(market_dim=63, has_news=True,
+                         market_input_mode='hybrid', bar_seq_len=20, bar_feat_dim=10)
     _load_checkpoint(model, args.model_path, args.device)
 
     test_loader = _build_eval_loader(args)
@@ -472,6 +623,11 @@ def main() -> None:
     logger.info("Running fidelity correlation test...")
     fidelity = evaluator.fidelity_metric(test_loader, num_batches=args.num_batches)
 
+    logger.info("Running random-K comparison test...")
+    random_k = evaluator.random_k_test(test_loader, num_batches=args.num_batches)
+    logger.info("Running most-recent-K comparison test...")
+    most_recent_k = evaluator.most_recent_k_test(test_loader, num_batches=args.num_batches)
+
     results = {
         "occlusion_test": occlusion,
         "insertion_test": insertion,
@@ -479,6 +635,8 @@ def main() -> None:
         "comprehensiveness_test": comprehensiveness,
         "factor_consistency_test": factor_consistency,
         "fidelity_metric": fidelity,
+        "random_k_comparison": random_k,
+        "most_recent_k_comparison": most_recent_k,
         "horizon": args.horizon,
         "symbol": args.symbol,
         "model_path": str(args.model_path),
@@ -497,6 +655,12 @@ def main() -> None:
     print(f"Sufficiency drop mean: {sufficiency['confidence_drop_mean']:.4f}")
     print(f"Comprehensiveness drop mean: {comprehensiveness['confidence_drop_mean']:.4f}")
     print(f"Factor consistency Jaccard mean: {factor_consistency['jaccard_mean']:.4f}")
+    print(f"Selector lift vs Random-K:      {random_k['selector_lift']:+.4f}  "
+          f"(safe={random_k['safe_gap_mean']:.4f} vs random={random_k['random_gap_mean']:.4f}, "
+          f"better={random_k['selector_better_ratio']:.1%})")
+    print(f"Selector lift vs Most-recent-K: {most_recent_k['selector_lift']:+.4f}  "
+          f"(safe={most_recent_k['safe_gap_mean']:.4f} vs recent={most_recent_k['recent_gap_mean']:.4f}, "
+          f"better={most_recent_k['selector_better_ratio']:.1%})")
     print(f"Attention-gap correlation: {fidelity['fidelity_correlation']:.4f}")
 
 

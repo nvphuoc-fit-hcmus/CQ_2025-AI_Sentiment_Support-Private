@@ -1,0 +1,13 @@
+# Chi cac goi CAN cho TRAINING (bo fastapi/kafka/mongo - khong can khi train).
+# Cai bang:  pip install -r requirements-train.txt
+torch==2.6.0
+transformers==4.46.0
+scikit-learn==1.5.2
+xgboost==2.1.2
+lightgbm==4.5.0
+shap==0.46.0
+numpy==1.26.4
+pandas==2.2.3
+ta==0.11.0
+vaderSentiment==3.3.2
+PyYAML==6.0.2

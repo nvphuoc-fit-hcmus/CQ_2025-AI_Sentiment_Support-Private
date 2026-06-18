@@ -15,6 +15,9 @@ artifacts/colab_run/fold_*/
 artifacts/colab_run/figures/
 artifacts/v2/
 
+# Exclude large prediction logs, keep only JSON results
+prediction_logs.jsonl
+
 # Giữ lại JSON kết quả (nhỏ, quan trọng cho thesis)
 !artifacts/colab_run/*.json
 

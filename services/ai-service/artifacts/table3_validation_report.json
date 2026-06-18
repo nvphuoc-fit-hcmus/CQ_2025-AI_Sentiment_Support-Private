@@ -1,0 +1,132 @@
+{
+  "source": "/kaggle/working/fold4_only/walk_forward_results.json",
+  "selected_deployment_fold": 4,
+  "deployment_policy": {
+    "tau": 0.5446612512605498,
+    "gamma": 0.5488455518061528,
+    "temperature": 0.9179553985595703,
+    "tau_seed": 0.5567924976348877,
+    "gamma_seed": 0.5454312562942505,
+    "temperature_nll": 0.9318010210990906,
+    "temperature_source": "validation_temperature_scaling_cal_split",
+    "coverage": 0.22871664548919948,
+    "alert_precision": 0.7472222447395325,
+    "val_sharpe_proxy": 0.6855281193606667,
+    "policy_source": "validation_grid_cal_sel_split",
+    "policy_confidence_source": "raw",
+    "policy_objective": 0.7754893455286382,
+    "target_coverage": 0.35,
+    "score": 0.5554190824547294,
+    "deploy_fold": 4,
+    "mode": "walk_forward_best_fold",
+    "source_artifact": "/kaggle/working/fold4_only/walk_forward_results.json",
+    "note": "Thresholds frozen from validation split of best walk-forward fold.",
+    "deployable": true,
+    "deploy_status": "ok",
+    "deployable_reason": "ok",
+    "deployable_n_passed": 1,
+    "deployable_n_total": 1
+  },
+  "deployable_summary": {
+    "deployable": true,
+    "deploy_status": "ok",
+    "selected_fold": 4,
+    "selected_fold_reason": "ok",
+    "n_deployable": 1,
+    "n_total": 1,
+    "per_fold": [
+      {
+        "fold": 4,
+        "deployable": true,
+        "reason": "ok"
+      }
+    ]
+  },
+  "metric_groups": {
+    "forecast": {
+      "macro_f1": 0.5591243910681601,
+      "mcc": 0.34148180482528545,
+      "auc": 0.7518187775834058
+    },
+    "alert": {
+      "alert_precision": 0.6968674659729004,
+      "alert_coverage": 0.3955394586351506,
+      "tau": 0.5446612512605498,
+      "gamma": 0.5488455518061528,
+      "temperature": 0.9179553985595703
+    },
+    "utility": {
+      "alert_sharpe": 0.5286000878948812,
+      "alert_sortino": 1.3256846261647661,
+      "alert_calmar": 385.09068677719046,
+      "alert_max_dd": -0.08128125085172148,
+      "model_score": 0.4317606116322232
+    }
+  },
+  "folds": [
+    {
+      "fold": 4,
+      "loss": 1.2857297433585655,
+      "dir_acc": 0.5684070121951219,
+      "accuracy": 0.5684070121951219,
+      "macro_f1": 0.5591243910681601,
+      "mcc": 0.34148180482528545,
+      "ece": 0.009788336119395469,
+      "auc": 0.7518187775834058,
+      "alert_precision": 0.6968674659729004,
+      "alert_coverage": 0.3955394586351506,
+      "alert_sharpe": 0.5286000878948812,
+      "alert_sortino": 1.3256846261647661,
+      "alert_calmar": 385.09068677719046,
+      "alert_max_dd": -0.08128125085172148,
+      "pnl": 3.6124383438855148,
+      "model_score": 0.4317606116322232,
+      "tau": 0.5446612512605498,
+      "gamma": 0.5488455518061528,
+      "temperature": 0.9179553985595703,
+      "policy_source": "frozen_validation_policy",
+      "policy_confidence_source": "raw",
+      "comprehensiveness": 0.01350212749093771,
+      "deletion_drop": 0.01350212749093771,
+      "insertion_gain": 0.01986725814640522,
+      "sufficiency_drop": 0.011123445816338062,
+      "factor_consistency": 0.388420245398773
+    }
+  ],
+  "averages": {
+    "final_val_loss": 1.4138820096850395,
+    "final_val_loss_std": NaN,
+    "final_val_acc": 0.5498856707680516,
+    "final_val_acc_std": NaN,
+    "test_macro_f1": 0.5591243910681601,
+    "test_macro_f1_std": NaN,
+    "test_mcc": 0.34148180482528545,
+    "test_mcc_std": NaN,
+    "test_ece": 0.009788336119395469,
+    "test_ece_std": NaN,
+    "test_auc": 0.7518187775834058,
+    "test_auc_std": NaN,
+    "test_alert_precision": 0.6968674659729004,
+    "test_alert_precision_std": NaN,
+    "test_alert_coverage": 0.3955394586351506,
+    "test_alert_coverage_std": NaN,
+    "test_alert_sharpe": 0.5286000878948812,
+    "test_alert_sharpe_std": NaN,
+    "test_alert_sortino": 1.3256846261647661,
+    "test_alert_sortino_std": NaN,
+    "test_alert_calmar": 385.09068677719046,
+    "test_alert_calmar_std": NaN,
+    "test_alert_max_dd": -0.08128125085172148,
+    "test_alert_max_dd_std": NaN,
+    "test_pnl": 3.6124383438855148,
+    "test_pnl_std": NaN,
+    "test_model_score": 0.4317606116322232,
+    "test_model_score_std": NaN,
+    "test_comprehensiveness": 0.01350212749093771,
+    "test_comprehensiveness_std": NaN,
+    "test_sufficiency_drop": 0.011123445816338062,
+    "test_sufficiency_drop_std": NaN,
+    "test_factor_consistency": 0.388420245398773,
+    "test_factor_consistency_std": NaN
+  }
+}

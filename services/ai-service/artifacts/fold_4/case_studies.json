@@ -1,0 +1,2685 @@
+{
+  "schema_version": 1,
+  "description": "SAFE-Alert case studies for paper Section 4.4.2 HumanUsefulness review",
+  "n_samples": 50,
+  "symbol": "BTCUSDT",
+  "horizon": "1h",
+  "tau_h": 0.5446612512605498,
+  "gamma_h": 0.5488455518061528,
+  "temperature_h": 0.9179553985595703,
+  "policy_confidence_source": "raw",
+  "seed": 42,
+  "records": [
+    {
+      "sample_index": 1,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.1792178750038147,
+          "NEUTRAL": 0.2473113089799881,
+          "UP": 0.5734707713127136
+        },
+        "confidence": 0.5240035057067871,
+        "policy_confidence": 0.5240035057067871,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.002763634081929922
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.0057909563183784485
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.31419211626052856
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.2820519804954529
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.20519892871379852
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5734707713127136,
+        "policy_confidence": 0.5240035057067871,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5734707713127136,
+        "p_mask_pred_class": 0.6129096150398254,
+        "relative_gap": -0.0687721950271914
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.28%.\nĐộ tin cậy: 0.52.\nYếu tố chi phối: bất định vĩ mô và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi bất định vĩ mô và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.52 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 9,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.20194603502750397,
+          "NEUTRAL": 0.21584242582321167,
+          "UP": 0.5822115540504456
+        },
+        "confidence": 0.5527283549308777,
+        "policy_confidence": 0.5527283549308777,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0027587986551225185
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.0015923462342470884
+      },
+      "selected_articles": [
+        "Bitcoin Fraudsters Ordered to Repay $30 Million in Three Months"
+      ],
+      "top_factors": [
+        {
+          "name": "regulatory_easing",
+          "prob": 0.2824186682701111
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.18884846568107605
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.1698959320783615
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5822115540504456,
+        "policy_confidence": 0.5527283549308777,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5822115540504456,
+        "p_mask_pred_class": 0.3893067538738251,
+        "relative_gap": 0.3313311095160889
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.28%.\nĐộ tin cậy: 0.55.\nBằng chứng chính: (a) Bitcoin Fraudsters Ordered to Repay $30 Million in Three Months.\nYếu tố chi phối: nới lỏng quy định và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi nới lỏng quy định và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.55 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 12,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.452782541513443,
+          "NEUTRAL": 0.33048591017723083,
+          "UP": 0.21673154830932617
+        },
+        "confidence": 0.47012344002723694,
+        "policy_confidence": 0.47012344002723694,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0017696390859782696
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.007269867695868015
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.28643426299095154
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.22041739523410797
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.17126606404781342
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.452782541513443,
+        "policy_confidence": 0.47012344002723694,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.452782541513443,
+        "p_mask_pred_class": 0.42159584164619446,
+        "relative_gap": 0.06887787626043575
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.18%.\nĐộ tin cậy: 0.47.\nYếu tố chi phối: bất định vĩ mô và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi bất định vĩ mô và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.47 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 19,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.4351736605167389,
+          "NEUTRAL": 0.48108720779418945,
+          "UP": 0.08373910933732986
+        },
+        "confidence": 0.5797842144966125,
+        "policy_confidence": 0.5797842144966125,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0018259277567267418
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": 0.0010488886618986726
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.4385698437690735
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.25748535990715027
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.2033681869506836
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.48108720779418945,
+        "policy_confidence": 0.5797842144966125,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.48108720779418945,
+        "p_mask_pred_class": 0.49009162187576294,
+        "relative_gap": -0.018716802142503864
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.18%.\nĐộ tin cậy: 0.58.\nYếu tố chi phối: bất định vĩ mô và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi bất định vĩ mô và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.58 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 41,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.2389247715473175,
+          "NEUTRAL": 0.3561718463897705,
+          "UP": 0.4049034118652344
+        },
+        "confidence": 0.5013606548309326,
+        "policy_confidence": 0.5013606548309326,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.00028409366495907307
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.0018906956538558006
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_easing",
+          "prob": 0.3726193904876709
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.23486976325511932
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.13770601153373718
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.4049034118652344,
+        "policy_confidence": 0.5013606548309326,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.4049034118652344,
+        "p_mask_pred_class": 0.44127845764160156,
+        "relative_gap": -0.08983635284474718
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.03%.\nĐộ tin cậy: 0.50.\nYếu tố chi phối: nới lỏng quy định và rủi ro sàn giao dịch.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi nới lỏng quy định và rủi ro sàn giao dịch kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.50 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 67,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.08909758925437927,
+          "NEUTRAL": 0.440265953540802,
+          "UP": 0.4706364572048187
+        },
+        "confidence": 0.5353445410728455,
+        "policy_confidence": 0.5353445410728455,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.002783915027976036
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.005640435963869095
+      },
+      "selected_articles": [
+        "Bitcoin could top $150K before retrace in repeat of 2017 cycle, says analyst"
+      ],
+      "top_factors": [
+        {
+          "name": "regulatory_easing",
+          "prob": 0.3958349823951721
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.3825138211250305
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.0872117206454277
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.4706364572048187,
+        "policy_confidence": 0.5353445410728455,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.4706364572048187,
+        "p_mask_pred_class": 0.4944784343242645,
+        "relative_gap": -0.05065901027099965
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.28%.\nĐộ tin cậy: 0.54.\nBằng chứng chính: (a) Bitcoin could top $150K before retrace in repeat of 2017 cycle, says analyst.\nYếu tố chi phối: nới lỏng quy định và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi nới lỏng quy định và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.54 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 89,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.10401761531829834,
+          "NEUTRAL": 0.4019368588924408,
+          "UP": 0.494045615196228
+        },
+        "confidence": 0.5436593890190125,
+        "policy_confidence": 0.5436593890190125,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.002135656075552106
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.006148267071694136
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_easing",
+          "prob": 0.34592100977897644
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.22229671478271484
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.1828746497631073
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.494045615196228,
+        "policy_confidence": 0.5436593890190125,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.494045615196228,
+        "p_mask_pred_class": 0.5344558358192444,
+        "relative_gap": -0.08179451325960252
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.21%.\nĐộ tin cậy: 0.54.\nYếu tố chi phối: nới lỏng quy định và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi nới lỏng quy định và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.54 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 100,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.12649480998516083,
+          "NEUTRAL": 0.6834686994552612,
+          "UP": 0.19003650546073914
+        },
+        "confidence": 0.5945818424224854,
+        "policy_confidence": 0.5945818424224854,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0002876028884202242
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.0011176785919815302
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_easing",
+          "prob": 0.4850000739097595
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.21969179809093475
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.20943070948123932
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6834686994552612,
+        "policy_confidence": 0.5945818424224854,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6834686994552612,
+        "p_mask_pred_class": 0.6867140531539917,
+        "relative_gap": -0.004748357461456659
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: +0.03%.\nĐộ tin cậy: 0.59.\nYếu tố chi phối: nới lỏng quy định và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi nới lỏng quy định và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.59 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 124,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.10410242527723312,
+          "NEUTRAL": 0.8592751026153564,
+          "UP": 0.03662249818444252
+        },
+        "confidence": 0.7698553800582886,
+        "policy_confidence": 0.7698553800582886,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.001095767947845161
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.00016901396156754345
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "whale_accumulation",
+          "prob": 0.24901658296585083
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.22012987732887268
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.2017885446548462
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.8592751026153564,
+        "policy_confidence": 0.7698553800582886,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.8592751026153564,
+        "p_mask_pred_class": 0.871387243270874,
+        "relative_gap": -0.014095765859678845
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.11%.\nĐộ tin cậy: 0.77.\nYếu tố chi phối: tích lũy của cá voi và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi tích lũy của cá voi và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.77 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 126,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.0718926265835762,
+          "NEUTRAL": 0.8040019869804382,
+          "UP": 0.12410538643598557
+        },
+        "confidence": 0.639043390750885,
+        "policy_confidence": 0.639043390750885,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.00034615182084962726
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.0002762772492133081
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "whale_accumulation",
+          "prob": 0.2569199800491333
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.2112828940153122
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.1926172971725464
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.8040019869804382,
+        "policy_confidence": 0.639043390750885,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.8040019869804382,
+        "p_mask_pred_class": 0.7775713801383972,
+        "relative_gap": 0.03287380786371624
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: +0.03%.\nĐộ tin cậy: 0.64.\nYếu tố chi phối: tích lũy của cá voi và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi tích lũy của cá voi và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.64 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 269,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.03043697215616703,
+          "NEUTRAL": 0.38676345348358154,
+          "UP": 0.5827995538711548
+        },
+        "confidence": 0.6740906834602356,
+        "policy_confidence": 0.6740906834602356,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0033830369357019663
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.002419385127723217
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.19811369478702545
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.16246534883975983
+        },
+        {
+          "name": "whale_accumulation",
+          "prob": 0.15994983911514282
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5827995538711548,
+        "policy_confidence": 0.6740906834602356,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5827995538711548,
+        "p_mask_pred_class": 0.580141007900238,
+        "relative_gap": 0.004561681547725582
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.34%.\nĐộ tin cậy: 0.67.\nYếu tố chi phối: siết chặt quy định và dòng tiền ETF.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi siết chặt quy định và dòng tiền ETF kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.67 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 290,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.2363865226507187,
+          "NEUTRAL": 0.28302258253097534,
+          "UP": 0.4805908799171448
+        },
+        "confidence": 0.545619547367096,
+        "policy_confidence": 0.545619547367096,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.00017984968144446611
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.006944851949810982
+      },
+      "selected_articles": [
+        "Bitcoin analysts warn of $95K ‘bear trap’ despite record $102K monthly close"
+      ],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.3395107686519623
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.24300041794776917
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.22158433496952057
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.4805908799171448,
+        "policy_confidence": 0.545619547367096,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.4805908799171448,
+        "p_mask_pred_class": 0.5164651274681091,
+        "relative_gap": -0.07464612636250854
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.02%.\nĐộ tin cậy: 0.55.\nBằng chứng chính: (a) Bitcoin analysts warn of $95K ‘bear trap’ despite record $102K monthly close.\nYếu tố chi phối: bất định vĩ mô và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi bất định vĩ mô và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.55 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 297,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.19795094430446625,
+          "NEUTRAL": 0.16162343323230743,
+          "UP": 0.6404256224632263
+        },
+        "confidence": 0.5617542862892151,
+        "policy_confidence": 0.5617542862892151,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.002837330801412463
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.012207903899252415
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.3423202931880951
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.22001415491104126
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.1586230844259262
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6404256224632263,
+        "policy_confidence": 0.5617542862892151,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6404256224632263,
+        "p_mask_pred_class": 0.6526142358779907,
+        "relative_gap": -0.01903205147833429
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.28%.\nĐộ tin cậy: 0.56.\nYếu tố chi phối: siết chặt quy định và dòng tiền tổ chức.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi siết chặt quy định và dòng tiền tổ chức kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.56 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 324,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.4410863220691681,
+          "NEUTRAL": 0.35080233216285706,
+          "UP": 0.20811139047145844
+        },
+        "confidence": 0.5131039619445801,
+        "policy_confidence": 0.5131039619445801,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0019584205001592636
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.0010504646925255656
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_easing",
+          "prob": 0.41010335087776184
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.35981887578964233
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.06949343532323837
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.4410863220691681,
+        "policy_confidence": 0.5131039619445801,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.4410863220691681,
+        "p_mask_pred_class": 0.5503774881362915,
+        "relative_gap": -0.24777727306172312
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.20%.\nĐộ tin cậy: 0.51.\nYếu tố chi phối: nới lỏng quy định và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi nới lỏng quy định và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.51 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 342,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.40728333592414856,
+          "NEUTRAL": 0.23195350170135498,
+          "UP": 0.36076319217681885
+        },
+        "confidence": 0.4710410535335541,
+        "policy_confidence": 0.4710410535335541,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0008428310975432396
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.0030569564551115036
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.35575026273727417
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.3393402397632599
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.09407339990139008
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.40728333592414856,
+        "policy_confidence": 0.4710410535335541,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.40728333592414856,
+        "p_mask_pred_class": 0.39901766180992126,
+        "relative_gap": 0.020294653341198014
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.08%.\nĐộ tin cậy: 0.47.\nYếu tố chi phối: rủi ro sàn giao dịch và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.47 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 368,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.3309190571308136,
+          "NEUTRAL": 0.3159954249858856,
+          "UP": 0.3530855178833008
+        },
+        "confidence": 0.48597991466522217,
+        "policy_confidence": 0.48597991466522217,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.00020167510956525803
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.008472157642245293
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.36126405000686646
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.3572562634944916
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.1544693261384964
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.3530855178833008,
+        "policy_confidence": 0.48597991466522217,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.3530855178833008,
+        "p_mask_pred_class": 0.3488936126232147,
+        "relative_gap": 0.011872209557661714
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: -0.02%.\nĐộ tin cậy: 0.49.\nYếu tố chi phối: siết chặt quy định và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi siết chặt quy định và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.49 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 394,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.4439034163951874,
+          "NEUTRAL": 0.2228577882051468,
+          "UP": 0.333238810300827
+        },
+        "confidence": 0.5225141048431396,
+        "policy_confidence": 0.5225141048431396,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.001750040566548705
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.009831325151026249
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.3078564703464508
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.26099100708961487
+        },
+        {
+          "name": "liquidity_squeeze",
+          "prob": 0.14885151386260986
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.4439034163951874,
+        "policy_confidence": 0.5225141048431396,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.4439034163951874,
+        "p_mask_pred_class": 0.48790618777275085,
+        "relative_gap": -0.09912690407948961
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.18%.\nĐộ tin cậy: 0.52.\nYếu tố chi phối: bất định vĩ mô và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi bất định vĩ mô và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.52 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 415,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.3292006850242615,
+          "NEUTRAL": 0.3835901916027069,
+          "UP": 0.287209153175354
+        },
+        "confidence": 0.4727564752101898,
+        "policy_confidence": 0.4727564752101898,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0009049148648045957
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.00401614373549819
+      },
+      "selected_articles": [
+        "XRP and Solana race toward the next crypto ETF approval",
+        "SEC Acknowledges Amendment for Grayscale Spot Solana ETF Application"
+      ],
+      "top_factors": [
+        {
+          "name": "etf_flow",
+          "prob": 0.40409591794013977
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.29000553488731384
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.14509627223014832
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.3835901916027069,
+        "policy_confidence": 0.4727564752101898,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.3835901916027069,
+        "p_mask_pred_class": 0.39583760499954224,
+        "relative_gap": -0.03192837998715111
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.09%.\nĐộ tin cậy: 0.47.\nBằng chứng chính: (a) XRP and Solana race toward the next crypto ETF approval; (b) SEC Acknowledges Amendment for Grayscale Spot Solana ETF Application.\nYếu tố chi phối: dòng tiền ETF và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi dòng tiền ETF và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.47 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 427,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.31151190400123596,
+          "NEUTRAL": 0.39228034019470215,
+          "UP": 0.29620781540870667
+        },
+        "confidence": 0.48696595430374146,
+        "policy_confidence": 0.48696595430374146,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0005502892890945077
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.000923468207474798
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "whale_accumulation",
+          "prob": 0.24068161845207214
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.20776639878749847
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.206927090883255
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.39228034019470215,
+        "policy_confidence": 0.48696595430374146,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.39228034019470215,
+        "p_mask_pred_class": 0.3691437244415283,
+        "relative_gap": 0.058979799348828785
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.06%.\nĐộ tin cậy: 0.49.\nYếu tố chi phối: tích lũy của cá voi và dòng tiền ETF.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi tích lũy của cá voi và dòng tiền ETF kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.49 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 481,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.2397487908601761,
+          "NEUTRAL": 0.5686119198799133,
+          "UP": 0.1916392594575882
+        },
+        "confidence": 0.5354280471801758,
+        "policy_confidence": 0.5354280471801758,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0003179873456247151
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.000686904473695904
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.6151461601257324
+        },
+        {
+          "name": "liquidity_squeeze",
+          "prob": 0.07129122316837311
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.059437233954668045
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5686119198799133,
+        "policy_confidence": 0.5354280471801758,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5686119198799133,
+        "p_mask_pred_class": 0.5680339932441711,
+        "relative_gap": 0.0010163814994667037
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.03%.\nĐộ tin cậy: 0.54.\nYếu tố chi phối: bất định vĩ mô và siết thanh khoản.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi bất định vĩ mô và siết thanh khoản kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.54 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 493,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.14470575749874115,
+          "NEUTRAL": 0.5989508628845215,
+          "UP": 0.25634336471557617
+        },
+        "confidence": 0.5578311681747437,
+        "policy_confidence": 0.5578311681747437,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0004889376577921212
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": 0.0004164687416050583
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "institutional_inflow",
+          "prob": 0.3696815073490143
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.26575204730033875
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.11791452765464783
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5989508628845215,
+        "policy_confidence": 0.5578311681747437,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5989508628845215,
+        "p_mask_pred_class": 0.555030345916748,
+        "relative_gap": 0.07332908204899168
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: +0.05%.\nĐộ tin cậy: 0.56.\nYếu tố chi phối: dòng tiền tổ chức và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi dòng tiền tổ chức và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.56 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 501,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.35264602303504944,
+          "NEUTRAL": 0.39897778630256653,
+          "UP": 0.24837619066238403
+        },
+        "confidence": 0.4800015985965729,
+        "policy_confidence": 0.4800015985965729,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0008852118044160306
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.0015783701092004776
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "etf_flow",
+          "prob": 0.5589779615402222
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.2176714688539505
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.10552060604095459
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.39897778630256653,
+        "policy_confidence": 0.4800015985965729,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.39897778630256653,
+        "p_mask_pred_class": 0.3488764762878418,
+        "relative_gap": 0.12557418416455443
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.09%.\nĐộ tin cậy: 0.48.\nYếu tố chi phối: dòng tiền ETF và rủi ro sàn giao dịch.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi dòng tiền ETF và rủi ro sàn giao dịch kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.48 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 504,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.11314048618078232,
+          "NEUTRAL": 0.6028716564178467,
+          "UP": 0.2839878797531128
+        },
+        "confidence": 0.5469505190849304,
+        "policy_confidence": 0.5469505190849304,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0009965028148144484
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.0003953061532229185
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "etf_flow",
+          "prob": 0.3330959677696228
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.24009175598621368
+        },
+        {
+          "name": "whale_accumulation",
+          "prob": 0.21373017132282257
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6028716564178467,
+        "policy_confidence": 0.5469505190849304,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6028716564178467,
+        "p_mask_pred_class": 0.605309247970581,
+        "relative_gap": -0.004043300969261184
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: +0.10%.\nĐộ tin cậy: 0.55.\nYếu tố chi phối: dòng tiền ETF và rủi ro sàn giao dịch.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi dòng tiền ETF và rủi ro sàn giao dịch kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.55 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 518,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.14655767381191254,
+          "NEUTRAL": 0.23631443083286285,
+          "UP": 0.6171278953552246
+        },
+        "confidence": 0.566386342048645,
+        "policy_confidence": 0.566386342048645,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.002438614144921303
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.002942109713330865
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "institutional_inflow",
+          "prob": 0.22351330518722534
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.2175282984972
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.20286794006824493
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6171278953552246,
+        "policy_confidence": 0.566386342048645,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6171278953552246,
+        "p_mask_pred_class": 0.6634742617607117,
+        "relative_gap": -0.07510009959736086
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.24%.\nĐộ tin cậy: 0.57.\nYếu tố chi phối: dòng tiền tổ chức và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi dòng tiền tổ chức và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.57 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 528,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.17244723439216614,
+          "NEUTRAL": 0.6207866668701172,
+          "UP": 0.20676612854003906
+        },
+        "confidence": 0.5642310976982117,
+        "policy_confidence": 0.5642310976982117,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 1.2298871297389269e-05
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.001573610003106296
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "institutional_inflow",
+          "prob": 0.4072519540786743
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.24420128762722015
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.07949864864349365
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6207866668701172,
+        "policy_confidence": 0.5642310976982117,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6207866668701172,
+        "p_mask_pred_class": 0.6215872168540955,
+        "relative_gap": -0.0012895734182154478
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: +0.00%.\nĐộ tin cậy: 0.56.\nYếu tố chi phối: dòng tiền tổ chức và rủi ro sàn giao dịch.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi dòng tiền tổ chức và rủi ro sàn giao dịch kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.56 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 543,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.5227838158607483,
+          "NEUTRAL": 0.4174186885356903,
+          "UP": 0.05979745835065842
+        },
+        "confidence": 0.6084690690040588,
+        "policy_confidence": 0.6084690690040588,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.002303404500707984
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.0017100988188758492
+      },
+      "selected_articles": [
+        "1 in 4 South Koreans Own Crypto; Most Eye Short-term Gains – Survey"
+      ],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.2383580356836319
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.23548905551433563
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.21894308924674988
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5227838158607483,
+        "policy_confidence": 0.6084690690040588,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5227838158607483,
+        "p_mask_pred_class": 0.508877694606781,
+        "relative_gap": 0.026600137249985948
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.23%.\nĐộ tin cậy: 0.61.\nBằng chứng chính: (a) 1 in 4 South Koreans Own Crypto; Most Eye Short-term Gains – Survey.\nYếu tố chi phối: rủi ro sàn giao dịch và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.61 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 589,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.19207626581192017,
+          "NEUTRAL": 0.3201502859592438,
+          "UP": 0.48777344822883606
+        },
+        "confidence": 0.49140408635139465,
+        "policy_confidence": 0.49140408635139465,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.001400583889335394
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.0037667318247258663
+      },
+      "selected_articles": [
+        "Ethereum Price Set to Skyrocket With Staked ETH ETFs on the Horizon – $10k Possible?"
+      ],
+      "top_factors": [
+        {
+          "name": "etf_flow",
+          "prob": 0.5396139025688171
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.1637083739042282
+        },
+        {
+          "name": "whale_accumulation",
+          "prob": 0.06992880254983902
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.48777344822883606,
+        "policy_confidence": 0.49140408635139465,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.48777344822883606,
+        "p_mask_pred_class": 0.5382615923881531,
+        "relative_gap": -0.10350736462315759
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.14%.\nĐộ tin cậy: 0.49.\nBằng chứng chính: (a) Ethereum Price Set to Skyrocket With Staked ETH ETFs on the Horizon – $10k Possible?.\nYếu tố chi phối: dòng tiền ETF và dòng tiền tổ chức.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi dòng tiền ETF và dòng tiền tổ chức kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.49 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 598,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.11203165352344513,
+          "NEUTRAL": 0.6141183972358704,
+          "UP": 0.2738499641418457
+        },
+        "confidence": 0.5739092826843262,
+        "policy_confidence": 0.5739092826843262,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.001327065983787179
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.0016358100110664964
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "etf_flow",
+          "prob": 0.48640236258506775
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.21583281457424164
+        },
+        {
+          "name": "whale_accumulation",
+          "prob": 0.07380887866020203
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6141183972358704,
+        "policy_confidence": 0.5739092826843262,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6141183972358704,
+        "p_mask_pred_class": 0.5670889616012573,
+        "relative_gap": 0.07658040509173997
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: +0.13%.\nĐộ tin cậy: 0.57.\nYếu tố chi phối: dòng tiền ETF và dòng tiền tổ chức.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi dòng tiền ETF và dòng tiền tổ chức kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.57 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 637,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.7079678773880005,
+          "NEUTRAL": 0.27551740407943726,
+          "UP": 0.016514699906110764
+        },
+        "confidence": 0.7868485450744629,
+        "policy_confidence": 0.7868485450744629,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.00495194923132658
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.007718617562204599
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.33111417293548584
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.1641397625207901
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.13840928673744202
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.7079678773880005,
+        "policy_confidence": 0.7868485450744629,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.7079678773880005,
+        "p_mask_pred_class": 0.7016281485557556,
+        "relative_gap": 0.00895482554326458
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.50%.\nĐộ tin cậy: 0.79.\nYếu tố chi phối: rủi ro sàn giao dịch và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.79 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 684,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.2740013897418976,
+          "NEUTRAL": 0.3470020294189453,
+          "UP": 0.3789965808391571
+        },
+        "confidence": 0.4652560353279114,
+        "policy_confidence": 0.4652560353279114,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0005165424081496894
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.002513741608709097
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.25313800573349
+        },
+        {
+          "name": "liquidity_squeeze",
+          "prob": 0.18755970895290375
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.155935600399971
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.3789965808391571,
+        "policy_confidence": 0.4652560353279114,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.3789965808391571,
+        "p_mask_pred_class": 0.38865700364112854,
+        "relative_gap": -0.025489472175663865
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.05%.\nĐộ tin cậy: 0.47.\nYếu tố chi phối: bất định vĩ mô và siết thanh khoản.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi bất định vĩ mô và siết thanh khoản kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.47 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 716,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.25373324751853943,
+          "NEUTRAL": 0.5910673141479492,
+          "UP": 0.15519936382770538
+        },
+        "confidence": 0.5435948371887207,
+        "policy_confidence": 0.5435948371887207,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0006930397357791662
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -2.0637708075810224e-05
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_easing",
+          "prob": 0.46152862906455994
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.36996567249298096
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.08213672041893005
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5910673141479492,
+        "policy_confidence": 0.5435948371887207,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5910673141479492,
+        "p_mask_pred_class": 0.560975193977356,
+        "relative_gap": 0.05091149425843728
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.07%.\nĐộ tin cậy: 0.54.\nYếu tố chi phối: nới lỏng quy định và dòng tiền ETF.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi nới lỏng quy định và dòng tiền ETF kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.54 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 728,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.11689972877502441,
+          "NEUTRAL": 0.27681592106819153,
+          "UP": 0.6062843799591064
+        },
+        "confidence": 0.5181537866592407,
+        "policy_confidence": 0.5181537866592407,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0032489707227796316
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.0034723104909062386
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "institutional_inflow",
+          "prob": 0.5122864842414856
+        },
+        {
+          "name": "whale_accumulation",
+          "prob": 0.14063046872615814
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.13267306983470917
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6062843799591064,
+        "policy_confidence": 0.5181537866592407,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6062843799591064,
+        "p_mask_pred_class": 0.5985559225082397,
+        "relative_gap": 0.01274724816659136
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.32%.\nĐộ tin cậy: 0.52.\nYếu tố chi phối: dòng tiền tổ chức và tích lũy của cá voi.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi dòng tiền tổ chức và tích lũy của cá voi kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.52 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 817,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.1464272290468216,
+          "NEUTRAL": 0.47639700770378113,
+          "UP": 0.37717580795288086
+        },
+        "confidence": 0.526569664478302,
+        "policy_confidence": 0.526569664478302,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0009116511209867895
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.001984593691304326
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.5014649033546448
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.23102834820747375
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.1304662525653839
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.47639700770378113,
+        "policy_confidence": 0.526569664478302,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.47639700770378113,
+        "p_mask_pred_class": 0.43661072850227356,
+        "relative_gap": 0.08351496453194827
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: +0.09%.\nĐộ tin cậy: 0.53.\nYếu tố chi phối: rủi ro sàn giao dịch và dòng tiền tổ chức.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và dòng tiền tổ chức kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.53 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 826,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.37984099984169006,
+          "NEUTRAL": 0.24959467351436615,
+          "UP": 0.3705642521381378
+        },
+        "confidence": 0.5164663195610046,
+        "policy_confidence": 0.5164663195610046,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0008488084422424436
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": 0.0008141061989590526
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_easing",
+          "prob": 0.2222103476524353
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.21918191015720367
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.19283315539360046
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.37984099984169006,
+        "policy_confidence": 0.5164663195610046,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.37984099984169006,
+        "p_mask_pred_class": 0.42686450481414795,
+        "relative_gap": -0.12379786540172419
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.08%.\nĐộ tin cậy: 0.52.\nYếu tố chi phối: nới lỏng quy định và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi nới lỏng quy định và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.52 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 851,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.32511404156684875,
+          "NEUTRAL": 0.26513710618019104,
+          "UP": 0.4097488522529602
+        },
+        "confidence": 0.5095568299293518,
+        "policy_confidence": 0.5095568299293518,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.00024677501642145216
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.0074859606102108955
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.27751874923706055
+        },
+        {
+          "name": "liquidity_squeeze",
+          "prob": 0.22393354773521423
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.22292716801166534
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.4097488522529602,
+        "policy_confidence": 0.5095568299293518,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.4097488522529602,
+        "p_mask_pred_class": 0.3675747513771057,
+        "relative_gap": 0.10292670899250776
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: -0.02%.\nĐộ tin cậy: 0.51.\nYếu tố chi phối: rủi ro sàn giao dịch và siết thanh khoản.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và siết thanh khoản kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.51 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 864,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.2742166221141815,
+          "NEUTRAL": 0.49492695927619934,
+          "UP": 0.23085647821426392
+        },
+        "confidence": 0.4711790382862091,
+        "policy_confidence": 0.4711790382862091,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0001779549929779023
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.0016458325553685427
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.6246956586837769
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.21732379496097565
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.06529345363378525
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.49492695927619934,
+        "policy_confidence": 0.4711790382862091,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.49492695927619934,
+        "p_mask_pred_class": 0.44130271673202515,
+        "relative_gap": 0.10834779059640719
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.02%.\nĐộ tin cậy: 0.47.\nYếu tố chi phối: rủi ro sàn giao dịch và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.47 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 882,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.27415984869003296,
+          "NEUTRAL": 0.39116978645324707,
+          "UP": 0.3346703350543976
+        },
+        "confidence": 0.4968329966068268,
+        "policy_confidence": 0.4968329966068268,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -4.479923518374562e-05
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.0007555178017355502
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "institutional_inflow",
+          "prob": 0.4147900342941284
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.15366889536380768
+        },
+        {
+          "name": "protocol_upgrade",
+          "prob": 0.09777428209781647
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.39116978645324707,
+        "policy_confidence": 0.4968329966068268,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.39116978645324707,
+        "p_mask_pred_class": 0.33526724576950073,
+        "relative_gap": 0.1429111925811475
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: -0.00%.\nĐộ tin cậy: 0.50.\nYếu tố chi phối: dòng tiền tổ chức và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi dòng tiền tổ chức và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.50 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 908,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.608986496925354,
+          "NEUTRAL": 0.16023097932338715,
+          "UP": 0.23078256845474243
+        },
+        "confidence": 0.5488073229789734,
+        "policy_confidence": 0.5488073229789734,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.004528435878455639
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.007867952808737755
+      },
+      "selected_articles": [
+        "Bitcoin Drops to Three-Month Low Under $80K, Erasing All Trump Election Gains",
+        "Arizona crypto reserve bills inch closer to law after passing Senate"
+      ],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.3513604402542114
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.1500934660434723
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.1253989338874817
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.608986496925354,
+        "policy_confidence": 0.5488073229789734,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.608986496925354,
+        "p_mask_pred_class": 0.5720697045326233,
+        "relative_gap": 0.06062005082069292
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.45%.\nĐộ tin cậy: 0.55.\nBằng chứng chính: (a) Bitcoin Drops to Three-Month Low Under $80K, Erasing All Trump Election Gains; (b) Arizona crypto reserve bills inch closer to law after passing Senate.\nYếu tố chi phối: rủi ro sàn giao dịch và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.55 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 956,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.1817474365234375,
+          "NEUTRAL": 0.24171747267246246,
+          "UP": 0.5765351057052612
+        },
+        "confidence": 0.5101438760757446,
+        "policy_confidence": 0.5101438760757446,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0020433079916983843
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.003724398324266076
+      },
+      "selected_articles": [
+        "Bybit hackers resume laundering activities, moving another 62,200 ETH",
+        "Strong inflows into ARK 21Shares, Fidelity Bitcoin ETFs end 8-day outflow streak"
+      ],
+      "top_factors": [
+        {
+          "name": "etf_flow",
+          "prob": 0.2971472442150116
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.2503305673599243
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.16508449614048004
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5765351057052612,
+        "policy_confidence": 0.5101438760757446,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5765351057052612,
+        "p_mask_pred_class": 0.6179572939872742,
+        "relative_gap": -0.07184677545583663
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.20%.\nĐộ tin cậy: 0.51.\nBằng chứng chính: (a) Bybit hackers resume laundering activities, moving another 62,200 ETH; (b) Strong inflows into ARK 21Shares, Fidelity Bitcoin ETFs end 8-day outflow streak.\nYếu tố chi phối: dòng tiền ETF và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi dòng tiền ETF và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.51 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 966,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.18119840323925018,
+          "NEUTRAL": 0.13490065932273865,
+          "UP": 0.6839009523391724
+        },
+        "confidence": 0.5768718123435974,
+        "policy_confidence": 0.5768718123435974,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0037444685585796833
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.04314407333731651
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "etf_flow",
+          "prob": 0.2888587415218353
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.18040955066680908
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.17606936395168304
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6839009523391724,
+        "policy_confidence": 0.5768718123435974,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6839009523391724,
+        "p_mask_pred_class": 0.7059624791145325,
+        "relative_gap": -0.03225836533770311
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.37%.\nĐộ tin cậy: 0.58.\nYếu tố chi phối: dòng tiền ETF và rủi ro sàn giao dịch.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi dòng tiền ETF và rủi ro sàn giao dịch kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.58 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 995,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.18737253546714783,
+          "NEUTRAL": 0.18922971189022064,
+          "UP": 0.6233977675437927
+        },
+        "confidence": 0.5796086192131042,
+        "policy_confidence": 0.5796086192131042,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.002276179613545537
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.00812858808785677
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.29077592492103577
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.22422459721565247
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.21675720810890198
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6233977675437927,
+        "policy_confidence": 0.5796086192131042,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6233977675437927,
+        "p_mask_pred_class": 0.572563648223877,
+        "relative_gap": 0.08154363388275168
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.23%.\nĐộ tin cậy: 0.58.\nYếu tố chi phối: rủi ro sàn giao dịch và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.58 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1013,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.4551793932914734,
+          "NEUTRAL": 0.08446856588125229,
+          "UP": 0.46035200357437134
+        },
+        "confidence": 0.5773427486419678,
+        "policy_confidence": 0.5773427486419678,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0013645460130646825
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.0026001965161412954
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "institutional_inflow",
+          "prob": 0.31334662437438965
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.21747958660125732
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.2020389288663864
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.46035200357437134,
+        "policy_confidence": 0.5773427486419678,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.46035200357437134,
+        "p_mask_pred_class": 0.4189973473548889,
+        "relative_gap": 0.0898326843336991
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: -0.14%.\nĐộ tin cậy: 0.58.\nYếu tố chi phối: dòng tiền tổ chức và dòng tiền ETF.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi dòng tiền tổ chức và dòng tiền ETF kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.58 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1026,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.3027532994747162,
+          "NEUTRAL": 0.1554170846939087,
+          "UP": 0.5418295860290527
+        },
+        "confidence": 0.5615160465240479,
+        "policy_confidence": 0.5615160465240479,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.0011893711052834988
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": 0.0008352966397069395
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.3421756625175476
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.29927679896354675
+        },
+        {
+          "name": "whale_accumulation",
+          "prob": 0.08316933363676071
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.5418295860290527,
+        "policy_confidence": 0.5615160465240479,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.5418295860290527,
+        "p_mask_pred_class": 0.601510763168335,
+        "relative_gap": -0.11014750519009521
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: +0.12%.\nĐộ tin cậy: 0.56.\nYếu tố chi phối: siết chặt quy định và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi siết chặt quy định và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.56 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1033,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.40291687846183777,
+          "NEUTRAL": 0.20846877992153168,
+          "UP": 0.388614296913147
+        },
+        "confidence": 0.4894499182701111,
+        "policy_confidence": 0.4894499182701111,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0003233331080991775
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": -0.0012433546362444758
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.3704862594604492
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.3474818766117096
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.11419837176799774
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.40291687846183777,
+        "policy_confidence": 0.4894499182701111,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.40291687846183777,
+        "p_mask_pred_class": 0.5496836304664612,
+        "relative_gap": -0.364260620118262
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.03%.\nĐộ tin cậy: 0.49.\nYếu tố chi phối: rủi ro sàn giao dịch và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.49 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1034,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "UP",
+        "direction_probs": {
+          "DOWN": 0.3987511396408081,
+          "NEUTRAL": 0.16955015063285828,
+          "UP": 0.43169867992401123
+        },
+        "confidence": 0.5196565985679626,
+        "policy_confidence": 0.5196565985679626,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.00022573757451027632
+      },
+      "ground_truth": {
+        "direction": "UP",
+        "return_pct": 0.006031447555869818
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.3830910325050354
+        },
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.31293362379074097
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.07660765945911407
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.43169867992401123,
+        "policy_confidence": 0.5196565985679626,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.43169867992401123,
+        "p_mask_pred_class": 0.3381263315677643,
+        "relative_gap": 0.21675384407642342
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng tăng trong 1h tới.\nMức thay đổi kỳ vọng: -0.02%.\nĐộ tin cậy: 0.52.\nYếu tố chi phối: rủi ro sàn giao dịch và siết chặt quy định.\nGiải thích: Mô hình nhận thấy tín hiệu tăng hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và siết chặt quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.52 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1049,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.575645387172699,
+          "NEUTRAL": 0.24739201366901398,
+          "UP": 0.17696258425712585
+        },
+        "confidence": 0.48377281427383423,
+        "policy_confidence": 0.48377281427383423,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0031504707876592875
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.0022543896920979023
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "regulatory_tightening",
+          "prob": 0.4845742881298065
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.20866645872592926
+        },
+        {
+          "name": "exchange_risk",
+          "prob": 0.16513383388519287
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.575645387172699,
+        "policy_confidence": 0.48377281427383423,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.575645387172699,
+        "p_mask_pred_class": 0.627230703830719,
+        "relative_gap": -0.08961301142598047
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.32%.\nĐộ tin cậy: 0.48.\nYếu tố chi phối: siết chặt quy định và bất định vĩ mô.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi siết chặt quy định và bất định vĩ mô kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.48 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1125,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "NEUTRAL",
+        "direction_probs": {
+          "DOWN": 0.03467674180865288,
+          "NEUTRAL": 0.6647829413414001,
+          "UP": 0.3005402982234955
+        },
+        "confidence": 0.6590251326560974,
+        "policy_confidence": 0.6590251326560974,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": 0.002640858758240938
+      },
+      "ground_truth": {
+        "direction": "NEUTRAL",
+        "return_pct": 0.0011012688046321273
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "exchange_risk",
+          "prob": 0.2873196005821228
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.23299118876457214
+        },
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.15349538624286652
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6647829413414001,
+        "policy_confidence": 0.6590251326560974,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6647829413414001,
+        "p_mask_pred_class": 0.5967800617218018,
+        "relative_gap": 0.10229335831389125
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng đi ngang trong 1h tới.\nMức thay đổi kỳ vọng: +0.26%.\nĐộ tin cậy: 0.66.\nYếu tố chi phối: rủi ro sàn giao dịch và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu đi ngang hiện tại được hỗ trợ bởi rủi ro sàn giao dịch và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.66 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1133,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.48110663890838623,
+          "NEUTRAL": 0.2895178198814392,
+          "UP": 0.22937552630901337
+        },
+        "confidence": 0.49243393540382385,
+        "policy_confidence": 0.49243393540382385,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.0021287924610078335
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.006245859898626804
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.25703856348991394
+        },
+        {
+          "name": "regulatory_easing",
+          "prob": 0.22396151721477509
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.09866800904273987
+        }
+      ],
+      "alert_decision": {
+        "fired": false,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.48110663890838623,
+        "policy_confidence": 0.49243393540382385,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.48110663890838623,
+        "p_mask_pred_class": 0.46683695912361145,
+        "relative_gap": 0.029660118216518844
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.21%.\nĐộ tin cậy: 0.49.\nYếu tố chi phối: bất định vĩ mô và nới lỏng quy định.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi bất định vĩ mô và nới lỏng quy định kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: GIỮ IM LẶNG (ĉ=0.49 chưa đạt ngưỡng — tránh phát tín hiệu khi bất định cao).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1139,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.8101196885108948,
+          "NEUTRAL": 0.1020929291844368,
+          "UP": 0.08778740465641022
+        },
+        "confidence": 0.6501235365867615,
+        "policy_confidence": 0.6501235365867615,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.009785124100744724
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.01490133535116911
+      },
+      "selected_articles": [],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.29493582248687744
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.17884770035743713
+        },
+        {
+          "name": "institutional_inflow",
+          "prob": 0.14164604246616364
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.8101196885108948,
+        "policy_confidence": 0.6501235365867615,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.8101196885108948,
+        "p_mask_pred_class": 0.8154696226119995,
+        "relative_gap": -0.006603881101740176
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.98%.\nĐộ tin cậy: 0.65.\nYếu tố chi phối: bất định vĩ mô và dòng tiền ETF.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi bất định vĩ mô và dòng tiền ETF kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.65 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    },
+    {
+      "sample_index": 1165,
+      "symbol": "BTCUSDT",
+      "horizon": "1h",
+      "prediction": {
+        "direction": "DOWN",
+        "direction_probs": {
+          "DOWN": 0.6447727680206299,
+          "NEUTRAL": 0.19424864649772644,
+          "UP": 0.16097857058048248
+        },
+        "confidence": 0.5448825359344482,
+        "policy_confidence": 0.5448825359344482,
+        "policy_confidence_source": "raw",
+        "return_pred_pct": -0.005318777170032263
+      },
+      "ground_truth": {
+        "direction": "DOWN",
+        "return_pct": -0.01140217762440443
+      },
+      "selected_articles": [
+        "Rex Shares, Osprey Seek Movement ETF Approval as Ethereum Layer-2 Mainnet Launches"
+      ],
+      "top_factors": [
+        {
+          "name": "macro_uncertainty",
+          "prob": 0.34602394700050354
+        },
+        {
+          "name": "etf_flow",
+          "prob": 0.20321844518184662
+        },
+        {
+          "name": "liquidity_squeeze",
+          "prob": 0.17123007774353027
+        }
+      ],
+      "alert_decision": {
+        "fired": true,
+        "tau_h": 0.5446612512605498,
+        "gamma_h": 0.5488455518061528,
+        "temperature": 0.9179553985595703,
+        "max_prob": 0.6447727680206299,
+        "policy_confidence": 0.5448825359344482,
+        "policy_confidence_source": "raw"
+      },
+      "faithfulness": {
+        "p_full_pred_class": 0.6447727680206299,
+        "p_mask_pred_class": 0.6449222564697266,
+        "relative_gap": -0.00023184671641079098
+      },
+      "nl_explanation": "Tín hiệu: BTC có khả năng giảm trong 1h tới.\nMức thay đổi kỳ vọng: -0.53%.\nĐộ tin cậy: 0.54.\nBằng chứng chính: (a) Rex Shares, Osprey Seek Movement ETF Approval as Ethereum Layer-2 Mainnet Launches.\nYếu tố chi phối: bất định vĩ mô và dòng tiền ETF.\nGiải thích: Mô hình nhận thấy tín hiệu giảm hiện tại được hỗ trợ bởi bất định vĩ mô và dòng tiền ETF kết hợp với bối cảnh thị trường đa khung thời gian; các tin còn lại được xem là ít quan trọng hơn hoặc trùng lặp ngữ nghĩa.\nQuyết định: PHÁT CẢNH BÁO (ĉ=0.54 đạt ngưỡng tin cậy và phân phối dự báo đủ sắc nét).",
+      "human_rating": null,
+      "human_comment": null
+    }
+  ]
+}

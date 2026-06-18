@@ -149,3 +149,19 @@ configs are:
 No change is needed to any other equation, figure, or claim. The four
 contributions, the architecture diagram, and the experimental protocol
 remain as described.
+
+---
+
+## Erratum #4 — ε_h threshold: paper states 0.002, implementation uses 0.0015
+
+### As stated in paper
+The paper describes a direction-label threshold of ε_h = 0.002 (±0.2%) for the 1h horizon.
+
+### Implementation
+`train_config_research_best.yaml` line 482 sets `epsilon_h_override: 0.0015`. All canonical artifact runs, including the prediction_logs.jsonl and all reported test-set metrics, use ε_h = 0.0015. The `constants.py` table still has `"1h": 0.002` but is overridden at runtime by the config.
+
+### Effect
+With ε_h = 0.0015, the label distribution shifts to UP=34.67%, NEUTRAL=32.33%, DOWN=33.00% (more balanced). With ε_h = 0.002, NEUTRAL would be ~41%, which makes the task harder and alert coverage lower.
+
+### Resolution
+The paper text should be corrected to state ε_h = 0.0015 for the 1h canonical run. The `constants.py` default (0.002) is the theoretically recommended value; 0.0015 was chosen empirically during hyperparameter search to produce more balanced labels.

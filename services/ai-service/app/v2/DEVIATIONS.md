@@ -376,6 +376,12 @@ significance. std requires K ≥ 2; K=3 minimum for useful estimate.
 of Stage 3 instead of 64%; SWA start shifted 0.78 → 0.85 so averaging
 excludes the S2→S3 lambda warmup transient.
 
+### T6. epsilon_h label threshold override — [INTERPRETATION]
+**Paper §4.1**: ε_h = 0.002 for 1h horizon.  
+**Code** (`train_config_research_best.yaml:482`): `epsilon_h_override: 0.0015`.  
+**Why**: Empirical search showed 0.0015 produces more balanced UP/NEUTRAL/DOWN labels (~33%/32%/33%) vs the 41% NEUTRAL at 0.002, leading to better class-weighted training dynamics. The `constants.py` default (0.002) is retained for reference; the config override takes precedence at runtime.  
+**Impact**: Label distribution changes. Test-set direction accuracy and F1 are computed using 0.0015-thresholded labels. Paper text should read ε_h = 0.0015.
+
 ---
 
 ## Data pipeline (Section 4.1)
@@ -384,9 +390,12 @@ excludes the S2→S3 lambda warmup transient.
 `P_exec = next_open(t)` per Eq.50. Verified at
 [`safe_alert_dataset.py:735,746`](pipelines/safe_alert_dataset.py).
 
-### D2. Neutral band ε_h — [EXACT]
-Per-horizon thresholds exactly match paper: {15m: 0.001, 1h: 0.002,
+### D2. Neutral band ε_h — [EXACT for defaults; see T6 for 1h canonical override]
+Per-horizon default thresholds in `constants.py` match paper: {15m: 0.001, 1h: 0.002,
 4h: 0.005, 24h: 0.010}. [`safe_alert_dataset.py:177`](pipelines/safe_alert_dataset.py).
+**Note**: The canonical 1h research run overrides ε_h to 0.0015 via
+`epsilon_h_override` in `train_config_research_best.yaml`. See **T6** (Training
+protocol section) for the full deviation record and paper erratum.
 
 ### D3. Ingest delay — [EXACT]
 `published_at + 15min <= decision_time` enforced in
@@ -870,6 +879,8 @@ requires three edits, formally documented in
 3. **§4.5.4** — add the missing hyperparameter/reproducibility note: the
    paper-text table is documented in ERRATUM.md, while every new run must
    cite its saved YAML artifact as the source of truth.
+4. **§4.1 / ε_h table** — correct the 1h neutral-band threshold from 0.002
+   to 0.0015 for the canonical run. See ERRATUM.md Erratum #4 and DEVIATIONS.md T6.
 
 Everything else in the code matches the paper literally or is an
 interpretation of paper ambiguity documented above. **No missing feature

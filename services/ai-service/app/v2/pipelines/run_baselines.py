@@ -40,6 +40,7 @@ Usage:
 import sys
 import json
 import gc
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -151,6 +152,180 @@ class AllNewsFusionMLP(nn.Module):
         avg_emb = (article_emb * mask_f).sum(dim=1) / denom       # (B, 768)
         news_h  = self.news_proj(avg_emb)                          # (B, 128)
         fused   = torch.cat([market_feat, news_h], dim=-1)
+        h = self.net(fused)
+        return {
+            "dir_logits": self.dir_head(h),
+            "confidence": torch.sigmoid(self.conf_head(h)).squeeze(-1),
+        }
+
+
+# =============================================================================
+# ADVANCED TIME-SERIES BASELINES: PatchTST & iTransformer (CaiTien §4)
+# Market-only backbones; use the same 63-dim precomputed feature vector as
+# MarketOnlyMLP so comparisons reflect architecture differences only.
+# =============================================================================
+
+class PatchTSTMarketOnly(nn.Module):
+    """PatchTST-style transformer on market features (Nie et al. 2023).
+
+    Treats the 63-dim market feature vector as a sequence of non-overlapping
+    patches of size patch_len, applies a Transformer encoder, then pools for
+    direction + confidence prediction.
+
+    Simplified variant: input is (B, 63) already precomputed features
+    (not raw OHLCV). We reshape into patches along the feature dimension.
+    """
+    def __init__(self, feat_dim: int = _MARKET_DIM, patch_len: int = 9,
+                 d_model: int = 64, n_heads: int = 4, n_layers: int = 2,
+                 n_classes: int = _N_CLASSES, dropout: float = _DROPOUT):
+        super().__init__()
+        # Number of patches (pad if not divisible)
+        self.patch_len = patch_len
+        n_patches = math.ceil(feat_dim / patch_len)
+        self.pad_len = n_patches * patch_len - feat_dim
+        self.n_patches = n_patches
+
+        self.patch_proj = nn.Linear(patch_len, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=n_heads, dim_feedforward=d_model * 4,
+            dropout=dropout, batch_first=True, norm_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+        self.norm = nn.LayerNorm(d_model)
+        self.dir_head  = nn.Linear(d_model, n_classes)
+        self.conf_head = nn.Linear(d_model, 1)
+
+    def forward(self, market_feat: torch.Tensor, **_) -> Dict[str, torch.Tensor]:
+        B = market_feat.shape[0]
+        # Pad to multiple of patch_len
+        if self.pad_len > 0:
+            market_feat = F.pad(market_feat, (0, self.pad_len))
+        x = market_feat.view(B, self.n_patches, self.patch_len)  # (B, P, L)
+        x = self.patch_proj(x)                                   # (B, P, d_model)
+        x = self.transformer(x)                                  # (B, P, d_model)
+        x = self.norm(x.mean(dim=1))                             # (B, d_model)
+        return {
+            "dir_logits":  self.dir_head(x),
+            "confidence":  torch.sigmoid(self.conf_head(x)).squeeze(-1),
+        }
+
+
+class iTransformerMarketOnly(nn.Module):
+    """iTransformer on market features (Liu et al. 2024, ICLR 2024).
+
+    iTransformer inverts the attention axis: treats each feature dimension
+    as a 'variate token' rather than each time step. Here we have a single
+    timestep with 63 features, so we embed each feature independently and
+    apply attention across the feature dimension.
+    """
+    def __init__(self, feat_dim: int = _MARKET_DIM, d_model: int = 64,
+                 n_heads: int = 4, n_layers: int = 2,
+                 n_classes: int = _N_CLASSES, dropout: float = _DROPOUT):
+        super().__init__()
+        self.feat_embed = nn.Linear(1, d_model)      # embed each scalar feature
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=n_heads, dim_feedforward=d_model * 4,
+            dropout=dropout, batch_first=True, norm_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+        self.norm = nn.LayerNorm(d_model)
+        self.dir_head  = nn.Linear(d_model, n_classes)
+        self.conf_head = nn.Linear(d_model, 1)
+
+    def forward(self, market_feat: torch.Tensor, **_) -> Dict[str, torch.Tensor]:
+        # market_feat: (B, 63)  → treat each feature as a variate token
+        x = market_feat.unsqueeze(-1)       # (B, 63, 1)
+        x = self.feat_embed(x)              # (B, 63, d_model)
+        x = self.transformer(x)             # (B, 63, d_model)
+        x = self.norm(x.mean(dim=1))        # (B, d_model)  — pool across variates
+        return {
+            "dir_logits":  self.dir_head(x),
+            "confidence":  torch.sigmoid(self.conf_head(x)).squeeze(-1),
+        }
+
+
+# =============================================================================
+# EVIDENCE-SELECTION BASELINES 15 & 16 (CaiTien.md Section 4 + Section 6)
+# =============================================================================
+
+class KSelectNewsFusionMLP(nn.Module):
+    """Baselines 15-17: AllNewsFusion but limited to K articles by a selection rule.
+
+    selection_mode:
+      "random"          — K articles chosen uniformly at random per sample per call
+      "most_recent"     — first K valid articles in the sequence (dataset sorts
+                          articles most-recent-first, so index 0 = newest)
+      "source_priority" — K articles with highest embedding L2 norm, used as a
+                          proxy for source quality (higher-quality sources produce
+                          more informative, content-dense embeddings). Requires no
+                          external source metadata — purely self-supervised signal.
+
+    Compared to AllNewsFusion (Baseline 2, all articles averaged) and
+    SAFE-Alert (learned selective attention):
+    • random_k_evidence        shows the floor for K-article selection without learning.
+    • most_recent_k_evidence   shows a strong heuristic (recency bias).
+    • source_priority_k_evidence shows an embedding-norm quality heuristic.
+    If SAFE-Alert's selective attention > all three, the learned selector adds value.
+    """
+    def __init__(self, market_dim: int = _MARKET_DIM,
+                 news_emb_dim: int = _NEWS_EMB_DIM,
+                 hidden: int = _HIDDEN, n_classes: int = _N_CLASSES,
+                 dropout: float = _DROPOUT,
+                 k: int = 4,
+                 selection_mode: str = "random"):
+        super().__init__()
+        assert selection_mode in ("random", "most_recent", "source_priority"), \
+            f"selection_mode must be 'random', 'most_recent', or 'source_priority', got {selection_mode!r}"
+        self.k = int(k)
+        self.selection_mode = selection_mode
+        self.news_proj = nn.Sequential(nn.Linear(news_emb_dim, 128), nn.GELU())
+        fused_dim = market_dim + 128
+        self.net = nn.Sequential(
+            nn.Linear(fused_dim, hidden), nn.GELU(), nn.Dropout(dropout),
+            nn.Linear(hidden, hidden),   nn.GELU(), nn.Dropout(dropout),
+        )
+        self.dir_head  = nn.Linear(hidden, n_classes)
+        self.conf_head = nn.Linear(hidden, 1)
+
+    def _select_mask(self, article_mask: torch.Tensor,
+                     article_emb: Optional[torch.Tensor] = None) -> torch.Tensor:
+        B, K = article_mask.shape
+        sel = torch.zeros_like(article_mask, dtype=torch.bool)
+        for b in range(B):
+            valid = article_mask[b].bool().nonzero(as_tuple=False).squeeze(-1)
+            n = valid.numel()
+            if n == 0:
+                continue
+            k_pick = min(self.k, n)
+            if self.selection_mode == "random":
+                perm = torch.randperm(n, device=article_mask.device)[:k_pick]
+                chosen = valid[perm]
+            elif self.selection_mode == "source_priority":
+                # Select K articles with highest embedding L2 norm as source-quality proxy.
+                # Embeddings from high-credibility sources (e.g. CoinDesk, Reuters) tend to
+                # have higher magnitude than noisy/low-signal aggregator content.
+                if article_emb is not None:
+                    norms = article_emb[b, valid].norm(dim=-1)           # (n,)
+                    _, top_idx = norms.topk(k_pick, largest=True)
+                    chosen = valid[top_idx]
+                else:
+                    chosen = valid[:k_pick]   # fallback to most_recent if no emb available
+            else:  # most_recent: first k_pick valid indices (newest first)
+                chosen = valid[:k_pick]
+            sel[b, chosen] = True
+        return sel
+
+    def forward(self, market_feat: torch.Tensor,
+                article_emb: torch.Tensor,
+                article_mask: torch.Tensor) -> Dict[str, torch.Tensor]:
+        sel_mask = self._select_mask(
+            article_mask,
+            article_emb if self.selection_mode == "source_priority" else None,
+        ).float().unsqueeze(-1)  # (B,K,1)
+        denom    = sel_mask.sum(dim=1).clamp(min=1e-8)                    # (B,1)
+        avg_emb  = (article_emb * sel_mask).sum(dim=1) / denom            # (B,768)
+        news_h   = self.news_proj(avg_emb)
+        fused    = torch.cat([market_feat, news_h], dim=-1)
         h = self.net(fused)
         return {
             "dir_logits": self.dir_head(h),
@@ -838,6 +1013,81 @@ def run_market_only(train_loader, eval_loader, args) -> Dict:
     return metrics
 
 
+def run_lightgbm_market_only(train_loader, eval_loader, args) -> Dict:
+    """LightGBM (or sklearn GBT) on market features — strong tabular baseline.
+
+    No news, no deep learning. Tests whether gradient-boosted trees can match
+    the neural market-only MLP on the same 63-dim feature set (CaiTien §4).
+    Falls back to sklearn GradientBoostingClassifier if lightgbm is unavailable.
+    """
+    print(f"\n{'='*60}")
+    print(f"  BASELINE 17: LightGBM Market-Only")
+    print(f"  Gradient-boosted trees on {_MARKET_DIM}-dim market features.")
+    print(f"  No news. Strong tabular baseline vs. deep model.")
+    print(f"{'='*60}")
+
+    try:
+        import lightgbm as lgb
+        _USE_LGB = True
+    except ImportError:
+        from sklearn.ensemble import GradientBoostingClassifier as _GBT  # noqa: F401
+        _USE_LGB = False
+        print("  [WARN] lightgbm not installed; falling back to sklearn GradientBoostingClassifier")
+
+    def _collect(loader):
+        X_list, y_list, ret_list = [], [], []
+        for batch in loader:
+            mf = batch["market_features"].numpy()
+            if mf.ndim > 2:
+                mf = mf.reshape(mf.shape[0], -1)
+            X_list.append(mf)
+            y_list.append(batch["direction"].numpy())
+            ret_list.append(batch["return"].numpy())
+        return (np.concatenate(X_list),
+                np.concatenate(y_list).astype(np.int64),
+                np.concatenate(ret_list))
+
+    print("  Collecting features from loaders...")
+    X_train, y_train, _   = _collect(train_loader)
+    X_eval,  y_eval,  ret = _collect(eval_loader)
+    print(f"  Train: {X_train.shape}  Eval: {X_eval.shape}")
+
+    if _USE_LGB:
+        import lightgbm as lgb
+        clf = lgb.LGBMClassifier(
+            n_estimators=400, num_leaves=63, learning_rate=0.05,
+            colsample_bytree=0.8, subsample=0.8, min_child_samples=20,
+            class_weight="balanced", random_state=42, n_jobs=-1,
+            verbose=-1,
+        )
+    else:
+        from sklearn.ensemble import GradientBoostingClassifier
+        clf = GradientBoostingClassifier(
+            n_estimators=200, learning_rate=0.05, max_depth=4,
+            subsample=0.8, random_state=42,
+        )
+
+    print("  Training...")
+    clf.fit(X_train, y_train)
+
+    proba = clf.predict_proba(X_eval)   # (N, n_present_classes)
+
+    # Map classifier classes → columns 0/1/2 (DOWN/NEUTRAL/UP).
+    # Some classes may be absent from training data.
+    full_proba = np.zeros((len(y_eval), 3), dtype=np.float32)
+    for col_idx, cls in enumerate(clf.classes_):
+        full_proba[:, int(cls)] = proba[:, col_idx]
+
+    preds      = full_proba.argmax(axis=1).astype(np.int64)
+    confidence = full_proba.max(axis=1).astype(np.float32)
+
+    metrics = _compute_metrics(preds, y_eval, confidence, ret, full_proba)
+    print(f"  [RESULT] F1={metrics['macro_f1']:.4f}  MCC={metrics['mcc']:.4f}  "
+          f"ECE={metrics['ece']:.4f}  Sharpe={metrics['alert_sharpe']:.4f}  "
+          f"Score={metrics['model_score']:.4f}")
+    return metrics
+
+
 def run_all_news_fusion(train_loader, eval_loader, args) -> Dict:
     """Baseline 2: Average ALL articles (no selection) + market features."""
     print(f"\n{'='*60}")
@@ -1382,7 +1632,10 @@ def load_data(args):
 
 def build_loaders(candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment, args):
     from torch.utils.data import Subset, DataLoader
+    import train_safe_alert as _ts_ref
+    _eps_override = getattr(_ts_ref, '_EPSILON_H_OVERRIDE', None)
 
+    print("[BUILD] Creating SAFEAlertDataset (indexing candles↔articles)...", flush=True)
     dataset = SAFEAlertDataset(
         candle_df=candle_df,
         article_embeddings=embeddings,
@@ -1393,7 +1646,9 @@ def build_loaders(candle_df, embeddings, articles_df, precomp, factor_labels, en
         precomputed_features=precomp,
         factor_labels=factor_labels,
         entity_sentiment=entity_sentiment,
+        epsilon_h_override=_eps_override,
     )
+    print(f"[BUILD] Dataset ready: {len(dataset)} samples", flush=True)
 
     train_size = int(0.70 * len(dataset))
     val_size   = int(0.15 * len(dataset))
@@ -1459,6 +1714,22 @@ def print_summary_table(results: Dict[str, Dict]):
 
 # =============================================================================
 # MAIN
+def _run_k_select_news_baseline(
+    baseline_num: int, name: str, desc: str,
+    selection_mode: str,
+    train_loader, eval_loader, args,
+) -> Dict:
+    """Runner for Random-K and Most-recent-K evidence baselines (15 & 16)."""
+    import train_safe_alert as _ts
+    k = _ts._TOP_K_MAP.get(args.horizon, 4)
+    return _run_news_market_baseline(
+        KSelectNewsFusionMLP,
+        baseline_num=baseline_num, name=name, desc=desc,
+        train_loader=train_loader, eval_loader=eval_loader, args=args,
+        model_kwargs={"k": k, "selection_mode": selection_mode},
+    )
+
+
 # =============================================================================
 
 _ALL_BASELINES = [
@@ -1476,7 +1747,155 @@ _ALL_BASELINES = [
     "selective_forecasting",
     "current_price_predictor",
     "all_news_llm_expl",
+    # Evidence-selection ablation baselines (CaiTien.md Section 4 + Section 6)
+    # These use the same AllNewsFusion backbone but with different article selection:
+    # random_k_evidence:    average of K random articles  (not most-relevant)
+    # most_recent_k_evidence: average of K most-recent articles (not most-relevant)
+    # Expected result: SAFE-Alert's selective attention > all three heuristics.
+    "random_k_evidence",
+    "most_recent_k_evidence",
+    # Source-quality-proxy K-selection: rank articles by embedding L2 norm
+    # (Baseline 17 — CaiTien §6: source-priority evidence selection)
+    "source_priority_k_evidence",
+    # Tabular ML baseline (CaiTien §4)
+    "lightgbm_market_only",
+    # Advanced time-series transformer baselines (CaiTien §4)
+    "patchtst_market_only",
+    "itransformer_market_only",
 ]
+
+
+def _run_market_arch_baseline(
+    model_class, baseline_num: int, name: str, desc: str,
+    train_loader, eval_loader, args,
+    model_kwargs: Optional[Dict] = None,
+) -> Dict:
+    """Generic runner for market-only architecture baselines (PatchTST, iTransformer).
+
+    Uses _train_epoch_market_only / _evaluate_market_only so only market_features
+    are passed to the model — article embeddings are never loaded.
+    """
+    print(f"\n{'='*60}")
+    print(f"  BASELINE {baseline_num}: {name}")
+    print(f"  {desc}")
+    print(f"{'='*60}")
+    model = model_class(**(model_kwargs or {})).to(args.device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=1e-6
+    )
+    for epoch in range(1, args.epochs + 1):
+        loss = _train_epoch_market_only(model, train_loader, optimizer, args.device)
+        scheduler.step()
+        if epoch % 5 == 0 or epoch == args.epochs:
+            print(f"  Epoch {epoch:3d}/{args.epochs} | train_loss={loss:.4f}")
+    preds, labels, confidence, ret_labels, dir_probs = _evaluate_market_only(
+        model, eval_loader, args.device
+    )
+    metrics = _compute_metrics(preds, labels, confidence, ret_labels, dir_probs)
+    print(f"  [RESULT] F1={metrics['macro_f1']:.4f}  MCC={metrics['mcc']:.4f}  "
+          f"ECE={metrics['ece']:.4f}  Sharpe={metrics['alert_sharpe']:.4f}  "
+          f"Score={metrics['model_score']:.4f}")
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return metrics
+
+
+def _run_all_baselines(to_run, train_loader, val_loader, test_loader, args) -> Dict:
+    """Run all requested baselines and return metrics dict."""
+    results: Dict[str, Dict] = {}
+    n_total = len(to_run)
+    done = 0
+
+    def _run(name, fn, *fn_args):
+        nonlocal done
+        done += 1
+        print(f"\n[{done}/{n_total}] Starting baseline: {name}", flush=True)
+        result = fn(*fn_args)
+        f1 = result.get('macro_f1', 0)
+        sh = result.get('alert_sharpe', 0)
+        print(f"[{done}/{n_total}] Done {name}: F1={f1:.3f} Sharpe={sh:.3f}", flush=True)
+        return result
+
+    if "market_only" in to_run:
+        results["market_only"] = _run("market_only", run_market_only, train_loader, test_loader, args)
+    if "all_news_fusion" in to_run:
+        results["all_news_fusion"] = _run("all_news_fusion", run_all_news_fusion, train_loader, test_loader, args)
+    if "always_alert" in to_run:
+        results["always_alert"] = _run("always_alert", run_always_alert, test_loader, args)
+    if "raw_prob_threshold" in to_run:
+        results["raw_prob_threshold"] = _run("raw_prob_threshold", run_raw_prob_threshold, train_loader, test_loader, args)
+    if "sentiment_market" in to_run:
+        results["sentiment_market"] = _run("sentiment_market", run_sentiment_market, train_loader, test_loader, args)
+    if "nsm_style" in to_run:
+        results["nsm_style"] = _run("nsm_style", run_nsm_style, train_loader, test_loader, args)
+    if "llm_factor" in to_run:
+        results["llm_factor"] = _run("llm_factor", run_llm_factor, train_loader, test_loader, args)
+    if "sep_style" in to_run:
+        results["sep_style"] = _run("sep_style", run_sep_style, train_loader, test_loader, args)
+    if "finin_style" in to_run:
+        results["finin_style"] = _run("finin_style", run_finin_style, train_loader, test_loader, args)
+    if "interleaved" in to_run:
+        results["interleaved"] = _run("interleaved", run_interleaved, train_loader, test_loader, args)
+    if "temperature_scaled" in to_run:
+        results["temperature_scaled"] = _run("temperature_scaled", run_temperature_scaled, train_loader, val_loader, test_loader, args)
+    if "selective_forecasting" in to_run:
+        results["selective_forecasting"] = _run("selective_forecasting", run_selective_forecasting,
+            train_loader, val_loader, test_loader, args, args.target_coverage)
+    if "current_price_predictor" in to_run:
+        results["current_price_predictor"] = _run("current_price_predictor", run_current_price_predictor, train_loader, test_loader, args)
+    if "all_news_llm_expl" in to_run:
+        results["all_news_llm_expl"] = _run("all_news_llm_expl", run_all_news_llm_expl, train_loader, test_loader, args)
+    if "random_k_evidence" in to_run:
+        done += 1
+        print(f"\n[{done}/{n_total}] Starting baseline: random_k_evidence", flush=True)
+        r = _run_k_select_news_baseline(
+            baseline_num=15, name="Random-K Evidence",
+            desc="AllNewsFusion with K random articles per candle.",
+            selection_mode="random",
+            train_loader=train_loader, eval_loader=test_loader, args=args)
+        print(f"[{done}/{n_total}] Done random_k_evidence: F1={r.get('macro_f1',0):.3f} Sharpe={r.get('alert_sharpe',0):.3f}", flush=True)
+        results["random_k_evidence"] = r
+    if "most_recent_k_evidence" in to_run:
+        done += 1
+        print(f"\n[{done}/{n_total}] Starting baseline: most_recent_k_evidence", flush=True)
+        r = _run_k_select_news_baseline(
+            baseline_num=16, name="Most-Recent-K Evidence",
+            desc="AllNewsFusion with K most-recent articles per candle.",
+            selection_mode="most_recent",
+            train_loader=train_loader, eval_loader=test_loader, args=args)
+        print(f"[{done}/{n_total}] Done most_recent_k_evidence: F1={r.get('macro_f1',0):.3f} Sharpe={r.get('alert_sharpe',0):.3f}", flush=True)
+        results["most_recent_k_evidence"] = r
+    if "source_priority_k_evidence" in to_run:
+        done += 1
+        print(f"\n[{done}/{n_total}] Starting baseline: source_priority_k_evidence", flush=True)
+        r = _run_k_select_news_baseline(
+            baseline_num=17, name="Source-Priority-K Evidence",
+            desc="AllNewsFusion with K articles ranked by embedding L2 norm (source-quality proxy).",
+            selection_mode="source_priority",
+            train_loader=train_loader, eval_loader=test_loader, args=args)
+        print(f"[{done}/{n_total}] Done source_priority_k_evidence: F1={r.get('macro_f1',0):.3f} Sharpe={r.get('alert_sharpe',0):.3f}", flush=True)
+        results["source_priority_k_evidence"] = r
+    if "lightgbm_market_only" in to_run:
+        results["lightgbm_market_only"] = _run(
+            "lightgbm_market_only", run_lightgbm_market_only,
+            train_loader, test_loader, args)
+    if "patchtst_market_only" in to_run:
+        results["patchtst_market_only"] = _run_market_arch_baseline(
+            PatchTSTMarketOnly,
+            baseline_num=19, name="PatchTST (Market-Only)",
+            desc="PatchTST-style patch transformer on 63-dim market features (Nie et al. 2023).",
+            train_loader=train_loader, eval_loader=test_loader, args=args,
+        )
+    if "itransformer_market_only" in to_run:
+        results["itransformer_market_only"] = _run_market_arch_baseline(
+            iTransformerMarketOnly,
+            baseline_num=20, name="iTransformer (Market-Only)",
+            desc="iTransformer variate-attention transformer on 63-dim market features (Liu et al. 2024).",
+            train_loader=train_loader, eval_loader=test_loader, args=args,
+        )
+    return results
 
 
 def main():
@@ -1484,7 +1903,7 @@ def main():
     service_root = script_file.parent.parent.parent.parent
     default_data = service_root / "training_data"
 
-    parser = ArgumentParser(description="SAFE-Alert baseline comparison (14 baselines)")
+    parser = ArgumentParser(description="SAFE-Alert baseline comparison (20 baselines)")
     parser.add_argument("--symbol",          default="BTCUSDT")
     parser.add_argument("--horizon",         default="1h", choices=["1h", "4h"])
     parser.add_argument("--epochs",          type=int,   default=30)
@@ -1498,8 +1917,12 @@ def main():
                         help="Target alert coverage for Baseline 12 (default 0.30 = 30%)")
     parser.add_argument("--baselines",       nargs="*",  default=None,
                         choices=_ALL_BASELINES,
-                            help=f"Which baselines to run (default: all 14). "
+                            help=f"Which baselines to run (default: all). "
                              f"Choices: {_ALL_BASELINES}")
+    parser.add_argument("--walk_forward",    action="store_true", default=False,
+                        help="Run baselines with walk-forward CV (same protocol as SAFE-Alert).")
+    parser.add_argument("--n_folds",         type=int,   default=4)
+    parser.add_argument("--embargo_steps",   type=int,   default=24)
     parser.add_argument("--data_path",       type=Path,  default=default_data)
     parser.add_argument("--embeddings_path", type=Path,  default=default_data)
     parser.add_argument("--config", type=Path,
@@ -1541,69 +1964,63 @@ def main():
     print(f"  Baselines : {to_run}")
 
     candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment = load_data(args)
-    train_loader, val_loader, test_loader = build_loaders(
-        candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment, args
-    )
-    print("[INFO] All final baseline metrics are reported on held-out test split.")
 
-    results: Dict[str, Dict] = {}
+    if args.walk_forward:
+        import train_safe_alert as _ts_ref_wf
+        _eps_override_wf = getattr(_ts_ref_wf, '_EPSILON_H_OVERRIDE', None)
+        from train_safe_alert import walk_forward_split
+        from torch.utils.data import Subset, DataLoader
+        from safe_alert_dataset import SAFEAlertDataset
 
-    # ── Existing baselines (1-4) ──────────────────────────────────────────────
-    if "market_only" in to_run:
-        results["market_only"] = run_market_only(train_loader, test_loader, args)
-
-    if "all_news_fusion" in to_run:
-        results["all_news_fusion"] = run_all_news_fusion(train_loader, test_loader, args)
-
-    if "always_alert" in to_run:
-        results["always_alert"] = run_always_alert(test_loader, args)
-
-    if "raw_prob_threshold" in to_run:
-        results["raw_prob_threshold"] = run_raw_prob_threshold(
-            train_loader, test_loader, args
+        dataset = SAFEAlertDataset(
+            candle_df=candle_df,
+            article_embeddings=embeddings,
+            article_meta=articles_df,
+            article_to_candle={},
+            symbol=args.symbol,
+            horizon=args.horizon,
+            precomputed_features=precomp,
+            factor_labels=factor_labels,
+            entity_sentiment=entity_sentiment,
+            epsilon_h_override=_eps_override_wf,
         )
+        folds = list(walk_forward_split(len(dataset), n_folds=args.n_folds,
+                                        embargo_steps=args.embargo_steps))
+        print(f"[WALK-FORWARD] {args.n_folds} folds | embargo={args.embargo_steps}")
 
-    # ── New baselines from PDF Section 4.3 (5-12) ────────────────────────────
-    if "sentiment_market" in to_run:
-        results["sentiment_market"] = run_sentiment_market(
-            train_loader, test_loader, args
+        fold_results_all: Dict[str, list] = {}
+
+        for fold_idx, (train_idx, val_idx, test_idx) in enumerate(folds, start=1):
+            print(f"\n{'='*60}")
+            print(f"  FOLD {fold_idx}/{len(folds)} | train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
+            print(f"{'='*60}")
+
+            dataset.fit_market_scaler(train_idx)
+            train_loader = DataLoader(Subset(dataset, train_idx), batch_size=args.batch_size, shuffle=True,  num_workers=0)
+            val_loader   = DataLoader(Subset(dataset, val_idx),   batch_size=args.batch_size, shuffle=False, num_workers=0)
+            test_loader  = DataLoader(Subset(dataset, test_idx),  batch_size=args.batch_size, shuffle=False, num_workers=0)
+
+            fold_results = _run_all_baselines(to_run, train_loader, val_loader, test_loader, args)
+            for name, metrics in fold_results.items():
+                fold_results_all.setdefault(name, []).append(metrics)
+
+        # Aggregate across folds
+        results = {}
+        for name, fold_list in fold_results_all.items():
+            agg = {}
+            keys = [k for k in fold_list[0] if isinstance(fold_list[0][k], (int, float))]
+            for k in keys:
+                vals = [f[k] for f in fold_list if k in f]
+                agg[k] = float(np.mean(vals))
+                agg[f"{k}_std"] = float(np.std(vals, ddof=1) if len(vals) > 1 else 0.0)
+            results[name] = agg
+        print("\n[WALK-FORWARD] Aggregated over all folds.")
+    else:
+        train_loader, val_loader, test_loader = build_loaders(
+            candle_df, embeddings, articles_df, precomp, factor_labels, entity_sentiment, args
         )
-
-    if "nsm_style" in to_run:
-        results["nsm_style"] = run_nsm_style(train_loader, test_loader, args)
-
-    if "llm_factor" in to_run:
-        results["llm_factor"] = run_llm_factor(train_loader, test_loader, args)
-
-    if "sep_style" in to_run:
-        results["sep_style"] = run_sep_style(train_loader, test_loader, args)
-
-    if "finin_style" in to_run:
-        results["finin_style"] = run_finin_style(train_loader, test_loader, args)
-
-    if "interleaved" in to_run:
-        results["interleaved"] = run_interleaved(train_loader, test_loader, args)
-
-    if "temperature_scaled" in to_run:
-        results["temperature_scaled"] = run_temperature_scaled(
-            train_loader, val_loader, test_loader, args
-        )
-
-    if "selective_forecasting" in to_run:
-        results["selective_forecasting"] = run_selective_forecasting(
-            train_loader, val_loader, test_loader, args,
-            target_coverage=args.target_coverage,
-        )
-
-    if "current_price_predictor" in to_run:
-        results["current_price_predictor"] = run_current_price_predictor(
-            train_loader, test_loader, args
-        )
-
-    if "all_news_llm_expl" in to_run:
-        results["all_news_llm_expl"] = run_all_news_llm_expl(
-            train_loader, test_loader, args
-        )
+        print("[INFO] All final baseline metrics are reported on held-out test split.")
+        results = _run_all_baselines(to_run, train_loader, val_loader, test_loader, args)
 
     # ── Summary and save ─────────────────────────────────────────────────────
     print_summary_table(results)
@@ -1614,13 +2031,14 @@ def main():
 
     json_results = {k: _to_serialisable(v) for k, v in results.items()}
     json_results["_meta"] = {
-        "symbol":          args.symbol,
-        "horizon":         args.horizon,
-        "epochs":          args.epochs,
-        "device":          args.device,
+        "symbol":           args.symbol,
+        "horizon":          args.horizon,
+        "epochs":           args.epochs,
+        "device":           args.device,
+        "protocol":         f"walk_forward_{args.n_folds}fold" if args.walk_forward else "single_split_70_15_15",
         "final_eval_split": "test",
-        "target_coverage": args.target_coverage,
-        "n_baselines_run": len(results),
+        "target_coverage":  args.target_coverage,
+        "n_baselines_run":  len(results),
     }
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

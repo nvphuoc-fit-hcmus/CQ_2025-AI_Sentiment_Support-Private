@@ -65,7 +65,7 @@ bar_seq_len: 20                  # L_δ per timeframe (paper unspecified; 20 = s
 # every timeframe). Documented as engineering choice in DEVIATIONS §D7.
 bar_feat_dim: 10                 # d_δ per bar (OHLCV log + log_return + body + wicks + range)
 epochs: 60
-batch_size: 8
+batch_size: 8                    # 8 for Kaggle T4/P100 16GB; reduce to 4 if local OOM
 lr: 3.0e-4
 grad_clip: 1.0
 device: auto                     # auto | cuda | cpu
