@@ -1,7 +1,11 @@
 import os
 import logging
+import json
+import requests
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from threading import Thread
 from app.market_cache import start_market_cache_thread
 
@@ -48,8 +52,119 @@ except ImportError:
 logger = logging.getLogger("ai-service")
 
 SUPPORTED_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
-
+_EXPLANATION_CACHE = {}
 app = FastAPI(title="AI Service — SAFE-Alert v2")
+
+
+class ExplanationRewriteRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    horizon: str = Field(default="1h", pattern="^(1h|4h)$")
+    direction: str = "HOLD"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    probabilities: dict = {}
+    factors: list[str] = []
+    article_titles: list[str] = []
+    article_evidence: list[dict] = []
+
+
+@app.post("/v2/explanation/rewrite")
+def rewrite_explanation(payload: ExplanationRewriteRequest):
+    """Rewrite a grounded SAFE-Alert explanation in natural Vietnamese."""
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY is not configured")
+
+    cache_key = "vi-grounded-v4:" + json.dumps(payload.model_dump(), ensure_ascii=False, sort_keys=True)
+    if cache_key in _EXPLANATION_CACHE:
+        return {"text": _EXPLANATION_CACHE[cache_key], "cached": True}
+
+    factor_names = {
+        "institutional_inflow": "dòng vốn tổ chức",
+        "etf_flow": "dòng vốn ETF",
+        "regulatory_easing": "nới lỏng quy định",
+        "regulatory_tightening": "siết chặt quy định",
+        "exchange_risk": "rủi ro sàn giao dịch",
+        "liquidity_squeeze": "áp lực thanh khoản",
+        "whale_accumulation": "cá voi tích lũy",
+        "macro_uncertainty": "bất ổn vĩ mô",
+        "protocol_upgrade": "nâng cấp giao thức",
+        "network_outage": "sự cố mạng lưới",
+    }
+    factors_vi = [factor_names.get(item, item.replace("_", " ")) for item in payload.factors[:3]]
+    evidence = payload.article_evidence[:5] or [
+        {"title": title} for title in payload.article_titles[:5]
+    ]
+    prompt = f"""
+Bạn là chuyên viên phân tích thị trường tiền mã hóa. Hãy viết một bản nhận định bằng tiếng Việt có dấu,
+dài từ 280 đến 420 từ, rõ ràng, thuyết phục nhưng thận trọng. Mục tiêu là giải thích kết quả của mô hình,
+không phải sáng tạo thêm dự báo hay dữ kiện.
+
+Dữ liệu duy nhất được phép sử dụng:
+- Cặp tiền: {payload.symbol}
+- Khung dự báo: {payload.horizon}
+- Tín hiệu: {payload.direction}
+- Độ tin cậy: {payload.confidence:.1%}
+- Xác suất: {json.dumps(payload.probabilities, ensure_ascii=False)}
+- Yếu tố nổi bật: {json.dumps(factors_vi, ensure_ascii=False)}
+- Bằng chứng tin tức được mô hình chọn (tiêu đề, nguồn, nội dung tóm tắt và độ liên quan nếu có):
+{json.dumps(evidence, ensure_ascii=False)}
+
+Yêu cầu:
+- Không thêm số liệu, sự kiện hoặc nguyên nhân không có trong dữ liệu.
+- Không khẳng định chắc chắn và không đưa lời khuyên mua bán trực tiếp.
+- Giải thích ý nghĩa tín hiệu, các xác suất, mức độ tin cậy và vì sao độ tin cậy cao vẫn không đồng nghĩa chắc chắn.
+- Nêu rõ yếu tố nổi bật nhất và giải thích mối liên hệ giữa từng yếu tố với đúng các bài viết được cung cấp.
+- Với mỗi bài báo, nêu tên bài trong dấu ngoặc kép, sau đó giải thích bằng tiếng Việt bài đó cung cấp bằng chứng gì,
+  nghiêng về hỗ trợ hay làm suy yếu nhận định, và giới hạn của bằng chứng đó. Không suy đoán nếu nội dung không đủ.
+- Nếu các bài báo đưa ra tín hiệu trái chiều, phải chỉ rõ sự trái chiều đó thay vì cố ép thành một kết luận đồng nhất.
+- Chuyển BUY/UP thành "tăng", SELL/DOWN thành "giảm", HOLD/NEUTRAL thành "trung tính"; không để mã nhãn kỹ thuật trong ngoặc.
+- Viết tự nhiên như một chuyên viên đang lập luận cho nhà đầu tư; tránh câu chữ chung chung và lặp lại số liệu.
+- Trình bày đúng cấu trúc dưới đây, có dòng trống giữa các phần:
+
+KẾT LUẬN
+[Một đoạn 3-4 câu tổng hợp tín hiệu, xác suất và mức tin cậy.]
+
+LUẬN CỨ CHÍNH
+[Một đoạn giải thích các yếu tố chi phối và quan hệ giữa chúng.]
+
+BẰNG CHỨNG TỪ TIN TỨC
+1. “Tên bài viết” — [2-3 câu giải thích bằng chứng và tác động.]
+2. ... [tiếp tục cho toàn bộ bài được cung cấp]
+
+RỦI RO CẦN THEO DÕI
+[Một đoạn chỉ ra mâu thuẫn, giới hạn dữ liệu và điều kiện có thể làm nhận định thay đổi.]
+- Không dùng ký hiệu Markdown như #, *, **; chỉ dùng đúng các nhãn và danh sách đánh số nêu trên.
+""".strip()
+
+    try:
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            params={"key": api_key},
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.35,
+                    "maxOutputTokens": 1400,
+                    "thinkingConfig": {"thinkingBudget": 0},
+                },
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        result = response.json()
+        text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+        if len(text) < 40:
+            raise ValueError("Gemini returned an explanation that is too short")
+        _EXPLANATION_CACHE[cache_key] = text
+        return {"text": text, "cached": False}
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        logger.warning("Gemini explanation rewrite failed with HTTP %s", status)
+        raise HTTPException(status_code=502, detail="Không thể tạo diễn giải bằng Gemini")
+    except Exception as exc:
+        logger.warning("Gemini explanation rewrite failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="Không thể tạo diễn giải bằng Gemini")
 
 # FIXED: Add CORS middleware to allow frontend access
 app.add_middleware(
@@ -195,6 +310,7 @@ def _v2_result_to_kafka_payload(sym: str, result: dict) -> dict:
         "predictions": [
             {
                 "symbol":        sym,
+                "should_alert":  bool(alert.get("alert") or h1h.get("should_alert")),
                 "current_price": current_price,
                 "explanation":   h1h.get("explanation", ""),
                 "forecast": {
@@ -253,7 +369,6 @@ def _v2_result_to_kafka_payload(sym: str, result: dict) -> dict:
 def _run_v2_inference_all():
     """Scheduled job: run live inference for all supported symbols."""
     from app.v2.pipelines.live_infer import run_live_inference
-    from app.kafka_producer import publish_insight
     for sym in SUPPORTED_SYMBOLS:
         try:
             result = run_live_inference(sym)
@@ -266,9 +381,23 @@ def _run_v2_inference_all():
                 alert.get("level"),
             )
             # Publish to Kafka → core-service → frontend
-            kafka_payload = _v2_result_to_kafka_payload(sym, result)
-            publish_insight(kafka_payload)
-            logger.info("[v2-scheduler] %s published to ai_insights topic", sym)
+            if _HAS_KAFKA_PRODUCER:
+                try:
+                    from app.kafka_producer import publish_insight
+                    kafka_payload = _v2_result_to_kafka_payload(sym, result)
+                    publish_insight(kafka_payload)
+                    logger.info("[v2-scheduler] %s published to ai_insights topic", sym)
+                except Exception as publish_error:
+                    logger.warning(
+                        "[v2-scheduler] %s inference refreshed but Kafka publish failed: %s",
+                        sym,
+                        publish_error,
+                    )
+            else:
+                logger.info(
+                    "[v2-scheduler] %s cache refreshed (Kafka producer unavailable)",
+                    sym,
+                )
         except Exception as e:
             logger.warning("[v2-scheduler] %s failed: %s", sym, e)
 
@@ -279,9 +408,26 @@ def _start_v2_scheduler():
         from apscheduler.schedulers.background import BackgroundScheduler
         _v2_scheduler = BackgroundScheduler()
         # Run every hour at minute 2 (gives Kafka time to flush the candle)
-        _v2_scheduler.add_job(_run_v2_inference_all, "cron", minute=2)
+        _v2_scheduler.add_job(
+            _run_v2_inference_all,
+            "cron",
+            minute=2,
+            id="safe_alert_hourly",
+            max_instances=1,
+            coalesce=True,
+        )
+        # A restart after minute :02 previously left the UI on an old cached
+        # signal until the next hour. Give Kafka/market cache a short warm-up,
+        # then refresh once without blocking service startup.
+        _v2_scheduler.add_job(
+            _run_v2_inference_all,
+            "date",
+            run_date=datetime.now() + timedelta(seconds=45),
+            id="safe_alert_startup_refresh",
+            max_instances=1,
+        )
         _v2_scheduler.start()
-        logger.info("SAFE-Alert v2 scheduler started (runs hourly at :02)")
+        logger.info("SAFE-Alert v2 scheduler started (startup refresh + hourly at :02)")
     except Exception as e:
         logger.warning("Could not start v2 scheduler: %s", e)
 

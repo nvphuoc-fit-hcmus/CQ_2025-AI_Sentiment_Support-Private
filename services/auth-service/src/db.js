@@ -42,6 +42,14 @@ async function initDB() {
       `ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_settings JSONB DEFAULT '{"prediction_symbols": [], "investment_enabled": false}'::jsonb;`,
       `ALTER TABLE users ADD COLUMN IF NOT EXISTS role text DEFAULT 'user';`,
       `ALTER TABLE users ADD COLUMN IF NOT EXISTS status text DEFAULT 'active';`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name text;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified boolean DEFAULT true;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token_hash text;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires_at timestamptz;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_change_otp_hash text;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_change_otp_expires_at timestamptz;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_otp_hash text;`,
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_otp_expires_at timestamptz;`,
       `ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();`
     ];
     for (const s of alterStmts) {

@@ -107,3 +107,4 @@ web-frontend/dist/
 # Temp / OS
 *.tmp
 Thumbs.db
+services/backtest-service/tmp/

@@ -52,7 +52,11 @@ from preprocessing.market_features import (
     extract_multiframe_market_features,  # NEW: For true 5-timeframe support
 )
 from preprocessing.news_features import add_nlp_scores, aggregate_nlp_window, get_vader_score
-from nlp.news_selector import aggregate_selected_news_features, select_news_for_horizon
+from nlp.news_selector import (
+    aggregate_selected_news_features,
+    select_candidates_for_horizon,
+    select_news_for_horizon,
+)
 from nlp.relevance_scorer import add_relevance_scores
 from alerts.alert_decider import decide_alert_multimodal_eq26
 from pipelines.utils import ARTIFACT_DIR, load_safe_alert_policy
@@ -82,7 +86,7 @@ _FINBERT_CLASSIFIER = None
 # ── Config ──────────────────────────────────────────────────────
 NLP_LAGS          = [1, 2, 3]          # lag cols: vader_mean_lag1-3 etc.
 NLP_LAG_COLS      = ["vader_mean", "nlp_score_mean", "bullish_ratio", "bearish_ratio"]
-NEWS_LOOKBACK_H   = 5                  # fetch 5h of news (enough for lag 0..3 + margin)
+NEWS_LOOKBACK_H   = 168                # covers the widest deployed candidate window
 CANDLE_LIMIT      = 250                # need ≥ 200 for SMA50 + lags + LSTM seq_len
 
 DROP_COLS = {
@@ -383,9 +387,9 @@ def _fetch_news_mongodb(
                 query,
                 {"_id": 0, "title": 1, "content": 1, "source": 1,
                  "created_at": 1, "published_at": 1,
-                 "sentiment_score": 1, "sentiment": 1,
+                  "sentiment_score": 1, "sentiment": 1,
                  "url": 1, "article_id": 1, "id": 1}
-            ).limit(500)
+            ).sort("created_at", -1).limit(500)
         )
         if not docs:
             return pd.DataFrame()
@@ -808,8 +812,7 @@ def _build_article_tensors(
     if news_df.empty or "published_at" not in news_df.columns:
         return None
 
-    selected = select_news_for_horizon(news_df, current_time, horizon)
-    window = selected.head(_SAFE_ALERT_MAX_ARTICLES).copy()
+    window = select_candidates_for_horizon(news_df, current_time, horizon)
 
     if window.empty:
         return None
@@ -896,8 +899,13 @@ def _build_article_tensors(
         meta_dicts.append({
             "title": str(row.get("title", "")),
             "source": str(row.get("source", "unknown")),
+            "url": str(row.get("url", "") or ""),
+            "content": str(row.get("content", "") or ""),
             "published_at": str(row.get("published_at", "")),
             "relevance_score": float(row.get("relevance_score", 0.0)),
+            "sentiment_score": sentiment_score,
+            "category": str(row.get("category", "") or ""),
+            "symbols": row.get("symbols", []) if isinstance(row.get("symbols", []), list) else [],
             "factor_probs": factor_probs.tolist(),
             "factor_sentiment": entity_sent.tolist(),
         })
@@ -1034,6 +1042,18 @@ def _run_safe_alert_net(
                 symbol=str(market_row.get("symbol", "BTCUSDT")),
             )
             explanation = exp_out
+            selected_titles = set(exp_out.get("selected_news", []))
+            explanation["selected_news"] = [
+                {
+                    key: item.get(key)
+                    for key in (
+                        "title", "source", "url", "content", "published_at",
+                        "relevance_score", "sentiment_score", "category", "symbols",
+                    )
+                }
+                for item in meta_dicts
+                if item.get("title") in selected_titles
+            ]
 
         dir_map = {0: "DOWN", 1: "NEUTRAL", 2: "UP"}
         return {
@@ -1049,6 +1069,9 @@ def _run_safe_alert_net(
             "factors_text":   explanation.get("factors_text", ""),
             "nl_explanation": explanation.get("nl_explanation", ""),
             "source":         "safe_alert_net",
+            "news_fetched_count": int(len(news_df)),
+            "candidate_count": int(len(meta_dicts)),
+            "selected_count": int(len(explanation.get("selected_news", []))),
         }
 
     except Exception as e:
@@ -1237,6 +1260,19 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
             "nlp_score_mean": _to_py(row.get("nlp_score_mean")),
             "bullish_ratio":  _to_py(row.get("bullish_ratio")),
             "news_count":     _to_py(row.get("news_count")),
+            "news_fetched_count": int(len(news_df)),
+            "candidate_count_1h": int(
+                san_1h_raw.get("candidate_count", 0) if san_1h_raw else 0
+            ),
+            "selected_count_1h": int(
+                san_1h_raw.get("selected_count", 0) if san_1h_raw else 0
+            ),
+            "candidate_count_4h": int(
+                san_4h_raw.get("candidate_count", 0) if san_4h_raw else 0
+            ),
+            "selected_count_4h": int(
+                san_4h_raw.get("selected_count", 0) if san_4h_raw else 0
+            ),
         },
     }
 

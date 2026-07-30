@@ -1,4 +1,4 @@
-# 🚀 Hệ Thống Phân Tích & Dự Đoán Thị Trường Crypto - TradeAI
+# 🚀 Hệ Thống Phân Tích & Dự Đoán Thị Trường Crypto - Aegis
 
 ## 📋 Mục Lục
 - [Tổng Quan](#-tổng-quan)
@@ -16,7 +16,7 @@
 
 ## 🎯 Tổng Quan
 
-**TradeAI** là một hệ thống microservices toàn diện dùng để:
+**Aegis** là một hệ thống microservices toàn diện dùng để:
 - 📊 Thu thập dữ liệu thị trường crypto theo thời gian thực từ Binance
 - 📰 Crawl tin tức từ 17+ nguồn uy tín (Cointelegraph, CoinDesk, Blogtienao...)
 - 🤖 Phân tích cảm xúc tin tức bằng **FinBERT** (Deep Learning)

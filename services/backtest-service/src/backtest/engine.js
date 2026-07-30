@@ -39,6 +39,13 @@ class BacktestEngine {
 
         const startTime = Date.now();
         const minCandlesForIndicators = 50; // Need history for EMA/RSI
+        const initialEquityCandle = this.candles[minCandlesForIndicators - 1];
+        if (initialEquityCandle) {
+            this.equityInterim.push({
+                time: new Date(initialEquityCandle.time),
+                value: this.initialCapital
+            });
+        }
 
         // MAIN LOOP
         for (let i = minCandlesForIndicators; i < this.candles.length; i++) {
@@ -81,6 +88,7 @@ class BacktestEngine {
         if (this.activePosition) {
             const lastCandle = this.candles[this.candles.length - 1];
             this.closePosition(lastCandle.close, lastCandle.time, 'END_OF_DATA');
+            this.recordEquity(new Date(lastCandle.time), parseFloat(lastCandle.close));
         }
 
         const endTime = Date.now();
@@ -109,18 +117,23 @@ class BacktestEngine {
         if (signal === 'BUY' && !this.activePosition) {
             // OPEN LONG
             const qty = (this.currentCapital * 0.99) / price; // Use 99% capital (fees buffer)
+            const entryNotional = price * qty;
+            const entryFee = entryNotional * 0.001;
             this.activePosition = {
                 type: 'long',
                 entry_price: price,
                 entry_time: time,
                 qty: qty,
+                entry_notional: entryNotional,
+                entry_fee: entryFee,
+                news_context: (context.news || []).slice(-5),
                 // Stop Loss / TP from strategy or default
                 stop_loss: this.strategy.stop_loss ? price * (1 - this.strategy.stop_loss / 100) : null,
                 take_profit: this.strategy.take_profit ? price * (1 + this.strategy.take_profit / 100) : null
             };
 
             // Fee (0.1%)
-            this.currentCapital -= (price * qty * 0.001);
+            this.currentCapital -= entryFee;
 
         } else if (signal === 'SELL') {
             // Close LONG if exists
@@ -130,15 +143,21 @@ class BacktestEngine {
             // Open SHORT if no position (and action logic allows it, implied by getting SELL signal)
             else if (!this.activePosition) {
                 const qty = (this.currentCapital * 0.99) / price;
+                const entryNotional = price * qty;
+                const entryFee = entryNotional * 0.001;
                 this.activePosition = {
                     type: 'short',
                     entry_price: price,
                     entry_time: time,
                     qty: qty,
+                    entry_notional: entryNotional,
+                    entry_fee: entryFee,
+                    news_context: (context.news || []).slice(-5),
                     // Short: SL is Above, TP is Below
                     stop_loss: this.strategy.stop_loss ? price * (1 + this.strategy.stop_loss / 100) : null,
                     take_profit: this.strategy.take_profit ? price * (1 - this.strategy.take_profit / 100) : null
                 };
+                this.currentCapital -= entryFee;
             }
         }
     }
@@ -179,28 +198,20 @@ class BacktestEngine {
         if (!this.activePosition) return;
 
         const pos = this.activePosition;
-        const value = pos.qty * price;
-        // Fee calculation (Opening + Closing fee approx 0.1% * 2 = 0.2% of notional?)
-        // Simplified: Fee on exit transaction
-        const fee = value * 0.001;
+        const exitNotional = pos.qty * price;
+        const exitFee = exitNotional * 0.001;
+        const entryNotional = pos.entry_notional ?? (pos.qty * pos.entry_price);
+        const entryFee = pos.entry_fee ?? (entryNotional * 0.001);
+        const grossProfit = pos.type === 'long'
+            ? (price - pos.entry_price) * pos.qty
+            : (pos.entry_price - price) * pos.qty;
 
-        let profit = 0;
-        let returnPct = 0;
-
-        if (pos.type === 'long') {
-            const netValue = value - fee;
-            profit = netValue - (pos.qty * pos.entry_price);
-            returnPct = ((price - pos.entry_price) / pos.entry_price) * 100;
-            this.currentCapital = this.currentCapital + profit;
-        } else if (pos.type === 'short') {
-            // Short: Profit = (Entry - Exit) * Qty
-            // Exit Cost = Exit Price * Qty + Fee
-            // Profit = (EntryPrice * Qty) - (ExitPrice * Qty) - Fees
-            const grossProfit = (pos.entry_price - price) * pos.qty;
-            profit = grossProfit - fee; // Deduct exit fee
-            returnPct = ((pos.entry_price - price) / pos.entry_price) * 100;
-            this.currentCapital = this.currentCapital + profit;
-        }
+        // The opening fee was deducted when the position was created. At close,
+        // apply gross price PnL and the exit fee to account capital. Trade-level
+        // profit includes both fees so trade sums reconcile with final equity.
+        this.currentCapital += grossProfit - exitFee;
+        const profit = grossProfit - entryFee - exitFee;
+        const returnPct = entryNotional > 0 ? (profit / entryNotional) * 100 : 0;
 
         this.positions.push({
             symbol: this.strategy.symbol,
@@ -210,9 +221,14 @@ class BacktestEngine {
             exit_price: price,
             qty: pos.qty,
             side: pos.type,
+            gross_profit: grossProfit,
+            entry_fee: entryFee,
+            exit_fee: exitFee,
+            total_fees: entryFee + exitFee,
             profit: profit,
             return_percent: returnPct,
             reason: reason,
+            news_context: pos.news_context || [],
             cumulative_capital: this.currentCapital
         });
 
@@ -220,19 +236,30 @@ class BacktestEngine {
     }
 
     /**
-     * Record equity at each time point
-     * FIXED: Include both current capital AND active position value
+     * Record marked-to-market account equity.
+     * currentCapital already represents the full account balance; the position
+     * was opened notionally without removing its value from cash. Therefore we
+     * add only unrealised PnL here, not the full position notional.
      */
     recordEquity(time, currentPrice) {
         let equity = this.currentCapital;
 
-        // FIX: Add active position value to current capital
         if (this.activePosition) {
-            const positionValue = this.activePosition.qty * currentPrice;
-            equity = this.currentCapital + positionValue;
+            const pos = this.activePosition;
+            const unrealizedPnl = pos.type === 'long'
+                ? (currentPrice - pos.entry_price) * pos.qty
+                : (pos.entry_price - currentPrice) * pos.qty;
+            const estimatedExitFee = pos.qty * currentPrice * 0.001;
+            equity = this.currentCapital + unrealizedPnl - estimatedExitFee;
         }
 
-        this.equityInterim.push({ time, value: equity });
+        const normalizedTime = new Date(time);
+        const lastPoint = this.equityInterim[this.equityInterim.length - 1];
+        if (lastPoint && new Date(lastPoint.time).getTime() === normalizedTime.getTime()) {
+            lastPoint.value = equity;
+        } else {
+            this.equityInterim.push({ time: normalizedTime, value: equity });
+        }
     }
 
     getLatestPrediction(time) {
@@ -259,9 +286,15 @@ class BacktestEngine {
         if (totalTrades === 0) {
             return {
                 total_trades: 0,
+                winning_trades: 0,
+                losing_trades: 0,
                 win_rate: 0,
+                total_profit: 0,
+                total_loss: 0,
                 net_profit: 0,
                 net_profit_percent: 0,
+                final_equity: this.currentCapital,
+                total_fees: 0,
                 max_drawdown: 0,
                 sharpe_ratio: 0,
                 trades: [],
@@ -274,16 +307,18 @@ class BacktestEngine {
 
         const winRate = (winningTrades.length / totalTrades) * 100;
 
+        const initialCap = this.initialCapital;
+        const finalEquity = this.currentCapital;
         const totalProfit = winningTrades.reduce((sum, p) => sum + p.profit, 0);
         const totalLoss = Math.abs(losingTrades.reduce((sum, p) => sum + p.profit, 0));
-        const netProfit = totalProfit - totalLoss;
-
-        const initialCap = this.initialCapital;
+        // Account balance is authoritative and includes every opening/closing
+        // fee. This also guarantees the headline PnL matches the equity curve.
+        const netProfit = finalEquity - initialCap;
         const netProfitPercent = (netProfit / initialCap) * 100;
 
         // Max Drawdown
         let maxDrawdown = 0;
-        let peak = -Infinity;
+        let peak = initialCap;
 
         this.equityInterim.forEach(point => {
             if (point.value > peak) peak = point.value;
@@ -309,6 +344,8 @@ class BacktestEngine {
             total_loss: totalLoss,
             net_profit: netProfit,
             net_profit_percent: netProfitPercent,
+            final_equity: finalEquity,
+            total_fees: this.positions.reduce((sum, p) => sum + (p.total_fees || 0), 0),
             max_drawdown: maxDrawdown,
             sharpe_ratio: sharpeRatio,
 

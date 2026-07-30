@@ -191,7 +191,7 @@ services:
       - ./services/auth-service:/app
       - /app/node_modules
     healthcheck:
-      test: [ "CMD-SHELL", "curl -f http://localhost:8080/auth/public-key || exit 1" ]
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/auth/public-key >/dev/null || exit 1" ]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -286,7 +286,7 @@ services:
       LOG_LEVEL: "DEBUG"
       NEWS_RAW_TOPIC: news_raw
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: "gemma-3-1b-it"
+      GEMINI_MODEL: "gemini-2.5-flash"
       MONGO_URL: "mongodb://mongo-crawler:27017"
       MONGO_DB: "crawler_db"
       CRAWL_SOURCES: >-
@@ -350,7 +350,7 @@ services:
 
       # Gemini AI configuration
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: "gemma-3-1b-it"
+      GEMINI_MODEL: "gemini-2.5-flash"
 
       # Settings
       PREDICTION_INTERVAL_SEC: "60"
@@ -359,6 +359,9 @@ services:
     volumes:
       - ./services/ai-service:/app
       - ./ml_models:/app/models
+      - type: bind
+        source: "D:/Khóa luận - Trading AI/CQ_2025-AI_Sentiment_Support-Private/services/ai-service/artifacts"
+        target: /app/artifacts
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:8002/health || exit 1" ]
       interval: 10s
@@ -515,11 +518,12 @@ services:
   notification-service:
     build:
       context: ./services/notification-service
+    env_file:
+      - ./services/auth-service/.env
     environment:
       POSTGRES_HOST: notification-db
+      AUTH_DATABASE_URL: postgresql://dev:dev@postgres:5432/appdb
       KAFKA_BROKERS: kafka:9092
-      SMTP_EMAIL: ${SMTP_EMAIL}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
       FE_URL: http://localhost:5173
     depends_on:
       notification-db:

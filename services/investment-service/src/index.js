@@ -171,49 +171,90 @@ async function fetchPredictionFromAIService(symbol) {
 }
 
 // NEW: Fetch SAFE-Alert real-time signal with technical indicators
-async function fetchSAFEAlertSignal(symbol) {
+async function fetchSAFEAlertSignal(symbol, targetSellTime = null) {
     try {
-        const res = await axios.get(`http://ai-service:8002/v2/signal/${symbol}`, { timeout: 8000 });
+        let res;
+        try {
+            res = await axios.get(`http://ai-service:8002/v2/signal/${symbol}/cached`, { timeout: 5000 });
+            console.log(`[SAFE-ALERT] Using cached multi-horizon signal for ${symbol}`);
+        } catch (cachedError) {
+            console.warn(`[SAFE-ALERT] Cached signal unavailable for ${symbol}, running live inference`);
+            res = await axios.get(`http://ai-service:8002/v2/signal/${symbol}`, { timeout: 30000 });
+        }
         const data = res.data;
 
-        if (data && data.horizon_1h) {
-            console.log(`[SAFE-ALERT] Got prediction for ${symbol}: signal=${data.horizon_1h.signal}, conf=${data.horizon_1h.confidence}`);
+        if (data && data.horizon_1h && data.horizon_4h) {
+            const h1 = data.horizon_1h;
+            const h4 = data.horizon_4h;
+            console.log(
+                `[SAFE-ALERT] ${symbol}: 1h=${h1.signal}/${Number(h1.confidence || 0).toFixed(3)}, `
+                + `4h=${h4.signal}/${Number(h4.confidence || 0).toFixed(3)}`
+            );
 
-            // Calculate price change % based on signal and confidence
-            // Formula: mag = |confidence - 0.5| * 0.04 * 100 (max ~2% per direction)
-            // But we can boost it up to 8% for more realistic positioning
-            const confidence = data.horizon_1h.confidence || 0;
-            const signal = data.horizon_1h.signal || 'HOLD';
+            const directionValue = (signal) => signal === 'BUY' ? 1 : (signal === 'SELL' ? -1 : 0);
+            const toDirection = (score) => score > 0.08 ? 'UP' : (score < -0.08 ? 'DOWN' : 'SIDEWAYS');
+            const probabilityEdge = (horizon) => {
+                const up = Number(horizon.probs?.UP);
+                const down = Number(horizon.probs?.DOWN);
+                if (Number.isFinite(up) && Number.isFinite(down)) return up - down;
+                return directionValue(horizon.signal) * Number(horizon.confidence || 0);
+            };
+            const horizonChange = (horizon, maxMovePercent) => {
+                return Math.max(-1, Math.min(1, probabilityEdge(horizon))) * maxMovePercent;
+            };
 
-            // Magnitude: confidence affects magnitude of price change
-            // At conf=1.0: max 4% change, at conf=0.5: 0% change (neutral)
-            const mag = Math.abs(confidence - 0.5) * 0.08; // 8% max (0-4% per direction)
-            const changePercent = signal === 'BUY' ? (mag * 100) : (signal === 'SELL' ? (-mag * 100) : 0);
+            const hoursToTarget = targetSellTime
+                ? Math.max(0, (new Date(targetSellTime).getTime() - Date.now()) / 3_600_000)
+                : 1;
+            const weights = hoursToTarget <= 2
+                ? { h1: 0.7, h4: 0.3 }
+                : (hoursToTarget <= 6 ? { h1: 0.4, h4: 0.6 } : { h1: 0.25, h4: 0.75 });
+
+            const h1Change = horizonChange(h1, 2);
+            const h4Change = horizonChange(h4, 4);
+            const consensusScore = probabilityEdge(h1) * weights.h1 + probabilityEdge(h4) * weights.h4;
+            const signalsAgree = directionValue(h1.signal) === directionValue(h4.signal);
+            const confidence = Math.max(0, Math.min(
+                1,
+                (Number(h1.confidence || 0) * weights.h1 + Number(h4.confidence || 0) * weights.h4)
+                * (signalsAgree ? 1 : 0.78)
+            ));
+            const direction = toDirection(consensusScore);
+            const changePercent = parseFloat((h1Change * weights.h1 + h4Change * weights.h4).toFixed(2));
+            const reason = signalsAgree
+                ? `Hai khung 1H và 4H đồng thuận ${direction === 'UP' ? 'tăng' : (direction === 'DOWN' ? 'giảm' : 'trung tính')}.`
+                : 'Hai khung 1H và 4H chưa đồng thuận; độ tin cậy đã được điều chỉnh giảm.';
 
             // Map to investment format
             return {
                 symbol,
-                direction: signal === 'BUY' ? 'UP' : (signal === 'SELL' ? 'DOWN' : 'SIDEWAYS'),
+                direction,
                 confidence: confidence,
-                change_percent: parseFloat(changePercent.toFixed(2)),  // Now correctly in percentage
-                reason: `SAFE-Alert 1h: ${signal} (conf=${(confidence*100).toFixed(1)}%)`,
+                change_percent: changePercent,
+                reason,
                 causal_factor: 'SAFE-Alert Multi-Horizon',
                 technical_indicators: data.top_inputs,
-                selected_news: data.horizon_1h.selected_news || [],
+                selected_news: [...(h1.selected_news || []), ...(h4.selected_news || [])],
                 alert_level: data.alert.level,
                 is_safe_alert: true,
+                consensus: {
+                    agrees: signalsAgree,
+                    score: parseFloat(consensusScore.toFixed(4)),
+                    hours_to_target: parseFloat(hoursToTarget.toFixed(2)),
+                    weights,
+                },
                 forecast: {
                     next_1h: {
-                        direction: signal === 'BUY' ? 'UP' : (signal === 'SELL' ? 'DOWN' : 'SIDEWAYS'),
-                        confidence: (confidence * 100).toFixed(1),
-                        price_change_percent: changePercent
+                        direction: toDirection(directionValue(h1.signal)),
+                        confidence: Number(h1.confidence || 0),
+                        price_change_percent: parseFloat(h1Change.toFixed(2)),
                     },
                     next_4h: {
-                        direction: data.horizon_4h.signal === 'BUY' ? 'UP' : (data.horizon_4h.signal === 'SELL' ? 'DOWN' : 'SIDEWAYS'),
-                        confidence: ((data.horizon_4h.confidence || 0) * 100).toFixed(1),
-                        price_change_percent: data.horizon_4h.signal === 'BUY' ? (Math.abs((data.horizon_4h.confidence || 0) - 0.5) * 8 * 100) : (data.horizon_4h.signal === 'SELL' ? (-Math.abs((data.horizon_4h.confidence || 0) - 0.5) * 8 * 100) : 0)
-                    }
-                }
+                        direction: toDirection(directionValue(h4.signal)),
+                        confidence: Number(h4.confidence || 0),
+                        price_change_percent: parseFloat(h4Change.toFixed(2)),
+                    },
+                },
             };
         }
 
@@ -291,7 +332,7 @@ async function analyzeInvestmentLogic(symbol, usdt_amount, target_sell_time) {
     const coinAmount = usdt_amount / buyPrice;
 
     // PRIMARY: Try SAFE-Alert real-time signal FIRST
-    let aiPred = await fetchSAFEAlertSignal(symbol);
+    let aiPred = await fetchSAFEAlertSignal(symbol, target_sell_time);
     if (aiPred) {
         console.log(`[INVESTMENT] Using SAFE-Alert prediction for ${symbol}`);
     } else {
@@ -396,7 +437,10 @@ app.post('/v1/investments/analyze', async (req, res) => {
                 confidence: result.aiPred.confidence,
                 direction: result.aiPred.direction,
                 causal_factor: result.aiPred.causal_factor,
-                buy_price: result.buyPrice // Expose buy price context
+                buy_price: result.buyPrice,
+                forecast: result.aiPred.forecast,
+                consensus: result.aiPred.consensus,
+                reason: result.aiPred.reason,
             }
         });
     } catch (err) {
@@ -438,7 +482,9 @@ app.post('/v1/investments', async (req, res) => {
                 confidence: ai_analysis.confidence,
                 change_percent: predictedPercent,
                 causal_factor: ai_analysis.causal_factor,
-                reason: ai_analysis.reason
+                reason: ai_analysis.reason,
+                forecast: ai_analysis.forecast,
+                consensus: ai_analysis.consensus,
             };
         } else {
             console.log(`[INVESTMENT] Performing new analysis for ${symbol}`);
@@ -488,7 +534,9 @@ app.post('/v1/investments', async (req, res) => {
                 confidence: aiPred.confidence,
                 direction: aiPred.direction,
                 causal_factor: aiPred.causal_factor,
-                reason: aiPred.reason
+                reason: aiPred.reason,
+                forecast: aiPred.forecast,
+                consensus: aiPred.consensus,
             }
         });
 
@@ -682,19 +730,21 @@ function generateAdvice(aiPred, buyPrice, usdtAmount) {
     const { change_percent, confidence, direction, reason, causal_factor } = aiPred;
 
     let advice = '';
+    const isActionable = confidence >= 0.55 && aiPred.consensus?.agrees !== false;
 
-    if (direction === 'UP' && confidence >= 0.01) {
-        advice = `✅ AI KHUYẾN NGHỊ ĐẦU TƯ\n`;
+    if (direction === 'UP' && isActionable) {
+        advice = `✅ XU HƯỚNG TĂNG ĐƯỢC XÁC NHẬN\n`;
         advice += `Dự đoán giá sẽ TĂNG ${change_percent.toFixed(2)}% (độ tin cậy ${(confidence * 100).toFixed(1)}%)\n`;
         advice += `Lợi nhuận dự kiến: ${(usdtAmount * change_percent / 100).toFixed(2)} USDT\n`;
-    } else if (direction === 'DOWN' && confidence >= 0.01) {
-        advice = `❌ AI KHÔNG KHUYẾN NGHỊ\n`;
+    } else if (direction === 'DOWN' && isActionable) {
+        advice = `⚠️ XU HƯỚNG GIẢM ĐƯỢC XÁC NHẬN\n`;
         advice += `Dự đoán giá sẽ GIẢM ${Math.abs(change_percent).toFixed(2)}% (độ tin cậy ${(confidence * 100).toFixed(1)}%)\n`;
         advice += `Rủi ro lỗ: ${Math.abs(usdtAmount * change_percent / 100).toFixed(2)} USDT\n`;
     } else {
-        advice = `⚠️ AI CHƯA RÕ RÀNG\n`;
-        advice += `Thị trường không ổn định (độ tin cậy thấp: ${(confidence * 100).toFixed(0)}%)\n`;
-        advice += `Nên thận trọng khi đầu tư.\n`;
+        advice = `⚠️ TÍN HIỆU CHƯA ĐỦ RÕ RÀNG\n`;
+        advice += `Kết quả tổng hợp có độ tin cậy ${(confidence * 100).toFixed(1)}%`;
+        advice += aiPred.consensus?.agrees === false ? ' và hai khung thời gian chưa đồng thuận.\n' : '.\n';
+        advice += `Nên tiếp tục quan sát thay vì xem đây là tín hiệu xác nhận.\n`;
     }
 
     if (reason) {
@@ -710,7 +760,7 @@ function generateAdvice(aiPred, buyPrice, usdtAmount) {
 // Helper: Calculate accuracy
 function calculateAccuracy(actual, predicted) {
     if (predicted === 0) return actual === 0 ? 100 : 0;
-    const error = Math.abs((actual - predicted) / predicted);
+    const error = Math.abs(actual - predicted) / Math.abs(predicted);
     return Math.max(0, Math.min(100, (1 - error) * 100));
 }
 

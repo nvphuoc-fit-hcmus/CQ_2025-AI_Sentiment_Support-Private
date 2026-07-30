@@ -73,6 +73,16 @@ export const checkBackendHealth = async () => {
   }
 };
 
+export const rewriteExplanation = async (payload) => {
+  const response = await fetch(`${BACKEND_URL}/v2/explanation/rewrite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return await response.json();
+};
+
 /**
  * Format signal data — FULL Intelligence Hub parsing
  *
@@ -97,6 +107,22 @@ export const formatSignalData = (signal) => {
   // Parse factor data
   const topFactors = h1.top_factors || [];
   const factorDist = h1.factor_dist || null; // Array of 10 floats if available
+  const formatArticles = (items = []) => items.map((item) => {
+    if (typeof item === 'string') {
+      return { title: item, source: 'SAFE-Alert', url: null, relevanceScore: null };
+    }
+    return {
+      title: item.title || item,
+      source: item.source || 'SAFE-Alert',
+      url: item.url || null,
+      relevanceScore: item.relevance_score || null,
+      content: item.content || item.summary || item.description || '',
+      publishedAt: item.published_at || item.time || null,
+      sentimentScore: item.sentiment_score ?? null,
+      category: item.category || null,
+      symbols: item.symbols || [],
+    };
+  });
 
   return {
     symbol: signal.symbol || 'BTCUSDT',
@@ -128,17 +154,7 @@ export const formatSignalData = (signal) => {
     factorDist: factorDist, // Raw [C] weights from FactorModule
 
     // === Layer 1: Selective Evidence (Eq.8-13) ===
-    articles: (h1.selected_news || []).map((item, idx) => {
-      if (typeof item === 'string') {
-        return { title: item, source: 'SAFE-Alert', url: null, relevanceScore: null };
-      }
-      return {
-        title: item.title || item,
-        source: item.source || 'SAFE-Alert',
-        url: item.url || null,
-        relevanceScore: item.relevance_score || null,
-      };
-    }),
+    articles: formatArticles(h1.selected_news),
 
     // === Structured Explanation (Eq.27-29) ===
     explanation: h1.explanation || h1.nl_explanation || '',
@@ -155,6 +171,9 @@ export const formatSignalData = (signal) => {
       },
       shouldAlert: h4.should_alert || false,
       topFactors: h4.top_factors || [],
+      factorsText: h4.factors_text || '',
+      factorDist: h4.factor_dist || null,
+      articles: formatArticles(h4.selected_news),
       explanation: h4.explanation || h4.nl_explanation || '',
     },
 
@@ -174,6 +193,7 @@ export default {
   fetchSAFEAlertSignal,
   fetchSAFEAlertSignalCached,
   checkBackendHealth,
+  rewriteExplanation,
   formatSignalData,
   FACTOR_LABELS,
 };

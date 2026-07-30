@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 const BacktestEngine = require('../backtest/engine');
+const { loadHistoricalPredictions } = require('../backtest/historical-predictions');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 
@@ -281,6 +282,16 @@ router.post('/run', requireAuth, async (req, res) => {
             console.error('[BACKTEST] Failed to fetch predictions:', predErr.message);
         }
 
+        const modelPredictions = loadHistoricalPredictions({
+            symbol,
+            startDate: start_date,
+            endDate: end_date,
+        });
+        if (modelPredictions.length > 0) {
+            predictions = modelPredictions;
+            console.log(`[BACKTEST] Loaded ${predictions.length} causal SAFE-Alert predictions from model replay`);
+        }
+
         // Fetch news sentiment data from TimescaleDB
         let newsData = [];
         try {
@@ -296,10 +307,15 @@ router.post('/run', requireAuth, async (req, res) => {
               SELECT time, sentiment_score, title
               FROM news_sentiment
               WHERE time >= $1 AND time <= $2
+                AND (
+                  raw_score->'symbols' ? $3
+                  OR raw_score->'symbols' ? 'ALL'
+                  OR raw_score IS NULL
+                )
               ORDER BY time ASC
             `;
 
-            const newsRes = await newsPool.query(newsQuery, [start_date, end_date]);
+            const newsRes = await newsPool.query(newsQuery, [start_date, end_date, symbol.toUpperCase()]);
             newsData = newsRes.rows;
             console.log(`[BACKTEST] Loaded ${newsData.length} news items from TimescaleDB`);
 

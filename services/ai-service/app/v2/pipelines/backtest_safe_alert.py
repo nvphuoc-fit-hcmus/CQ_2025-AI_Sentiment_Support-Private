@@ -49,6 +49,8 @@ def _find_checkpoint(artifact_dir: Path, symbol: str, horizon: str) -> Optional[
     candidates.extend(sorted(artifact_dir.glob(f"safe_alert_{symbol}_{horizon}_stage3_epoch*.pt")))
     candidates.extend(sorted(artifact_dir.glob("safe_alert_*_stage3_epoch*.pt")))
     candidates.extend(sorted(artifact_dir.glob("safe_alert_*.pt")))
+    candidates.extend(sorted(artifact_dir.glob(f"fold_*/safe_alert_{horizon}_FINAL.pt")))
+    candidates.extend(sorted(artifact_dir.glob(f"fold_*/safe_alert_{horizon}_best_epoch*.pt")))
 
     for path in candidates:
         if path.exists():
@@ -85,13 +87,19 @@ def load_model(artifact_dir: Path, symbol: str, horizon: str, device: str = "cpu
     # default changes. K values match the training-time YAML top_k block.
     # If the checkpoint was trained with custom K, load via the checkpoint's
     # `K_h` field (single horizon value) — future work: save full K_h_map.
-    from models.safe_alert_net import FACTOR_CLASSES as _FCL
+    from app.v2.models.safe_alert_net import FACTOR_CLASSES as _FCL
+    state = checkpoint.get("model_state", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+    has_bar_encoder = any(str(k).startswith("market_enc.bar_encoders.") for k in state)
     model = SAFEAlertNet(
         market_dim=63,
         article_dim=128,    # internal encoding dim (matches training default)
         has_news=True,
         K_15m=3, K_1h=4, K_4h=5, K_24h=8,
         n_factors=_FCL,
+        use_bar_sequences=has_bar_encoder,
+        market_input_mode="hybrid" if has_bar_encoder else "scalar",
+        bar_seq_len=20,
+        bar_feat_dim=10,
     )
 
     # strict=False keeps backtests tolerant to checkpoint schema drift while
@@ -136,6 +144,7 @@ def load_model(artifact_dir: Path, symbol: str, horizon: str, device: str = "cpu
     model._ckpt_temperature = float(
         checkpoint.get("temperature", 1.0) if isinstance(checkpoint, dict) else 1.0
     )
+    model._preprocessing_state = preproc
 
     print(f"[OK] Model loaded ({ckpt_path.name})")
     return model
@@ -433,7 +442,8 @@ def _select_candle_file(data_dir: Path, symbol: str, horizon: str) -> Path:
 
 
 def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
-             policy_json: Optional[Path] = None, allow_short: bool = True):
+             policy_json: Optional[Path] = None, allow_short: bool = True,
+             export_predictions: Optional[Path] = None):
     """Run backtest on test set with REAL model predictions."""
 
     print("\n" + "="*70)
@@ -457,6 +467,8 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
     candle_path = _select_candle_file(data_dir, symbol, horizon)
     print(f"[*] Loading candles from {candle_path}...")
     candle_df = pd.read_csv(candle_path)
+    if "timestamp" not in candle_df.columns and "datetime" in candle_df.columns:
+        candle_df = candle_df.rename(columns={"datetime": "timestamp"})
     candle_df['timestamp'] = pd.to_datetime(candle_df['timestamp'])
 
     print(f"[*] Loading embeddings...")
@@ -464,6 +476,8 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
 
     print(f"[*] Loading articles metadata...")
     articles_df = pd.read_csv(data_dir / "articles_max.csv")
+    if "timestamp" not in articles_df.columns and "published_at" in articles_df.columns:
+        articles_df = articles_df.rename(columns={"published_at": "timestamp"})
     articles_df['timestamp'] = pd.to_datetime(articles_df['timestamp'])
 
     factor_labels = None
@@ -478,6 +492,41 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
         print("[*] Loading entity sentiment (FSA)...")
         entity_sentiment = np.load(entity_path)
 
+    precomputed_features = None
+    features_path = data_dir / f"features_precomputed_{horizon}.npy"
+    if not features_path.exists():
+        features_path = data_dir / "features_precomputed.npy"
+    if features_path.exists():
+        candidate_features = np.load(features_path, mmap_mode="r")
+        if candidate_features.shape == (len(candle_df), 63):
+            precomputed_features = candidate_features
+            print(f"[*] Loading precomputed market features from {features_path.name}...")
+
+    market_bars = None
+    if getattr(model, "use_bar_sequences", False):
+        bars_path = data_dir / f"market_bars_{horizon}.npz"
+        if not bars_path.exists():
+            bars_path = data_dir / "market_bars.npz"
+        if not bars_path.exists():
+            raise RuntimeError(
+                f"[ERROR] Checkpoint requires hybrid bar sequences but {bars_path.name} is missing."
+            )
+        with np.load(bars_path) as bars_npz:
+            candidate_bars = {key: bars_npz[key] for key in bars_npz.files}
+        first_bars = next(iter(candidate_bars.values()))
+        if first_bars.shape[0] != len(candle_df):
+            raise RuntimeError(
+                f"[ERROR] {bars_path.name} has N={first_bars.shape[0]}, "
+                f"but {candle_path.name} has N={len(candle_df)}."
+            )
+        market_bars = candidate_bars
+        print(f"[*] Loading hybrid market bars from {bars_path.name}...")
+
+    article_novelty = None
+    novelty_path = data_dir / "article_novelty.npy"
+    if novelty_path.exists():
+        article_novelty = np.load(novelty_path, mmap_mode="r")
+
     # Create dataset to get test split (FIXED: correct constructor)
     try:
         dataset = SAFEAlertDataset(
@@ -487,9 +536,12 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
             article_to_candle={},
             factor_labels=factor_labels,
             entity_sentiment=entity_sentiment,
+            precomputed_features=precomputed_features,
+            market_bars=market_bars,
+            article_novelty=article_novelty,
             symbol=symbol,
             horizon=horizon,
-            articles_per_candle=8,
+            articles_per_candle=32,
         )
     except Exception as e:
         raise RuntimeError(f"[ERROR] Cannot load dataset: {e}. Ensure training data exists.")
@@ -498,11 +550,16 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
     # Dataset._normalize_market_features mirrors what training did — test
     # samples are z-scored using the exact (mean, std, clip) the trainer fit.
     if hasattr(model, "_market_feature_mean") and model._market_feature_mean is not None:
-        dataset.load_preprocessing_state({
+        preprocessing_state = {
             "market_feature_mean": model._market_feature_mean.cpu(),
             "market_feature_std":  model._market_feature_std.cpu(),
             "market_feature_clip": model._market_feature_clip,
-        })
+        }
+        checkpoint_preproc = getattr(model, "_preprocessing_state", None) or {}
+        for key in ("market_bar_mean", "market_bar_std", "market_bar_clip"):
+            if checkpoint_preproc.get(key) is not None:
+                preprocessing_state[key] = checkpoint_preproc[key]
+        dataset.load_preprocessing_state(preprocessing_state)
         print("[OK] Dataset preprocessing state rehydrated from checkpoint.")
     else:
         print("[WARN] Dataset has no scaler — backtest may use raw features (distribution mismatch).")
@@ -528,6 +585,7 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
     all_confidence = []
     all_max_prob = []
     all_returns = []
+    prediction_rows = []
 
     with torch.no_grad():
         for i in range(test_start_idx, n_total):
@@ -547,6 +605,9 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
                 article_emb = sample['article_embeddings'].unsqueeze(0).to(device)  # (1, K, 768)
                 article_mask = sample['article_mask'].unsqueeze(0).to(device)  # (1, K)
                 article_meta = sample['article_metadata'].unsqueeze(0).to(device)  # (1, K, 4)
+                market_bars_sample = sample.get("market_bars")
+                if market_bars_sample is not None:
+                    market_bars_sample = market_bars_sample.unsqueeze(0).to(device)
 
                 # Get prediction. Symbol is forwarded for API compatibility;
                 # the paper-final model does not use it in Eq.9.
@@ -557,6 +618,7 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
                     article_mask=article_mask,
                     article_meta_vec=article_meta,
                     symbol=symbol,
+                    market_bars=market_bars_sample,
                 )
 
                 dir_logits = pred_dict['dir_logits']  # Shape: (1, 3)
@@ -571,6 +633,21 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
                 all_predictions.append(direction_pred)
                 all_confidence.append(confidence)
                 all_max_prob.append(max_prob)
+                candle_idx = dataset.valid_idx[i]
+                prediction_rows.append({
+                    "time": pd.Timestamp(candle_df.iloc[candle_idx]["timestamp"]).isoformat(),
+                    "symbol": symbol.upper(),
+                    "horizon": horizon,
+                    "direction": ("DOWN", "NEUTRAL", "UP")[direction_pred],
+                    "confidence": confidence,
+                    "max_probability": max_prob,
+                    "probabilities": {
+                        "DOWN": float(probs[0]),
+                        "NEUTRAL": float(probs[1]),
+                        "UP": float(probs[2]),
+                    },
+                    "return": ret,
+                })
 
             except Exception as e:
                 print(f"[WARN] Sample {i} failed: {e}, skipping")
@@ -588,6 +665,13 @@ def backtest(artifact_dir: Path, data_dir: Path, symbol: str, horizon: str,
     all_returns = np.array(all_returns[:len(all_predictions)])  # Align lengths
 
     print(f"[OK] Generated {len(all_predictions)} predictions")
+
+    if export_predictions is not None:
+        export_predictions.parent.mkdir(parents=True, exist_ok=True)
+        with export_predictions.open("w", encoding="utf-8") as handle:
+            for row in prediction_rows:
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+        print(f"[OK] Exported historical predictions to {export_predictions}")
 
     # Convert model classes to trading signals with policy thresholds (Eq.26)
     if policy:
@@ -715,6 +799,9 @@ if __name__ == "__main__":
                         help="Long-only strategy (spot). Default: long+short, "
                              "matches mini_backtest used during τ/γ search.")
 
+    parser.add_argument("--export_predictions", type=Path, default=None,
+                        help="Optional JSONL path for timestamped historical predictions")
     args = parser.parse_args()
     backtest(args.artifact_dir, args.data_dir, args.symbol, args.horizon,
-             args.policy_json, allow_short=not args.long_only)
+             args.policy_json, allow_short=not args.long_only,
+             export_predictions=args.export_predictions)

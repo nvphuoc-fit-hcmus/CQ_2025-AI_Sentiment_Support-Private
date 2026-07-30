@@ -1,9 +1,7 @@
 import React from 'react';
 import { MousePointer2, TrendingUp, Minus, Type, Grid, Ruler } from 'lucide-react';
 
-export default function LeftToolbar() {
-    const [activeTool, setActiveTool] = React.useState('crosshair');
-
+export default function LeftToolbar({ activeTool = 'crosshair', onToolChange }) {
     const tools = [
         { id: 'crosshair', icon: MousePointer2, title: 'Con trỏ' },
         { id: 'trend', icon: TrendingUp, title: 'Đường xu hướng' },
@@ -21,7 +19,9 @@ export default function LeftToolbar() {
                     <button
                         className={`toolbar-btn ${activeTool === tool.id ? 'active' : ''}`}
                         title={tool.title}
-                        onClick={() => setActiveTool(tool.id)}
+                        onClick={() => onToolChange?.(tool.id)}
+                        aria-label={tool.title}
+                        aria-pressed={activeTool === tool.id}
                     >
                         <tool.icon size={16} />
                     </button>

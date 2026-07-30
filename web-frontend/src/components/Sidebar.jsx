@@ -1,17 +1,14 @@
 import React, { useState } from 'react';
 import useStore from '../store';
-import { useRefreshVIPStatus } from '../hooks/useRefreshVIPStatus';
 import NewsList from './NewsList';
 import DecisionSidebar from './DecisionSidebar';
 import Watchlist from './Watchlist';
 import { BrainCircuit, List, Newspaper, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function Sidebar() {
-    const { isVip, currentSymbol } = useStore();
+    const { currentSymbol } = useStore();
     const [activeTab, setActiveTab] = useState('decision');
     const [collapsed, setCollapsed] = useState(false);
-
-    useRefreshVIPStatus();
 
     const tabs = [
         { id: 'decision', icon: BrainCircuit, title: 'Phân tích AI' },

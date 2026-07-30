@@ -55,7 +55,17 @@ class StrategyParser {
             actualValue = context.indicators[name.toLowerCase()];
         } else if (type === 'ai') {
             if (!context.prediction) return false;
-            actualValue = this.getNestedValue(context.prediction, field);
+            const aliases = {
+                direction_1h: ['direction_1h', 'forecast.next_1h.direction', 'direction'],
+                confidence_1h: ['confidence_1h', 'forecast.next_1h.confidence', 'confidence'],
+                direction_4h: ['direction_4h', 'forecast.next_4h.direction'],
+                confidence_4h: ['confidence_4h', 'forecast.next_4h.confidence'],
+            };
+            const candidatePaths = aliases[field] || [field];
+            for (const path of candidatePaths) {
+                actualValue = this.getNestedValue(context.prediction, path);
+                if (actualValue !== undefined && actualValue !== null) break;
+            }
         } else if (type === 'price') {
             actualValue = context.currentPrice;
         } else if (type === 'news') {

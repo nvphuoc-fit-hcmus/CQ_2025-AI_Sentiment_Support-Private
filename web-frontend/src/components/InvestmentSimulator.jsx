@@ -1,22 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import useStore from '../store';
 import { useToast } from './ToastProvider';
-import { useRefreshVIPStatus } from '../hooks/useRefreshVIPStatus';
 import { TrendingUp, TrendingDown, DollarSign, Calendar, AlertCircle, CheckCircle, X, BrainCircuit, Activity, Lock, ChevronDown, Bell, BellOff } from 'lucide-react';
+import { pushNotification } from '../utils/notificationCenter';
 
 export default function InvestmentSimulator() {
-    const { authFetch, user, symbol, token, isVip } = useStore();
+    const { authFetch, user, currentSymbol, token } = useStore();
+    const isVip = true;
     const { showToast } = useToast();
 
-    // Refresh VIP status on mount (in case user just upgraded)
-    useRefreshVIPStatus();
-
     const [investments, setInvestments] = useState([]);
+    const [expandedInvestmentId, setExpandedInvestmentId] = useState(null);
     const [loading, setLoading] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
 
     // Form state
-    const [selectedSymbol, setSelectedSymbol] = useState(symbol || 'BTCUSDT');
+    const [selectedSymbol, setSelectedSymbol] = useState(currentSymbol || 'BTCUSDT');
     const [usdtAmount, setUsdtAmount] = useState('1000');
     const [targetDate, setTargetDate] = useState('');
 
@@ -107,8 +106,8 @@ export default function InvestmentSimulator() {
     };
 
     useEffect(() => {
-        if (symbol) setSelectedSymbol(symbol);
-    }, [symbol]);
+        if (currentSymbol) setSelectedSymbol(currentSymbol);
+    }, [currentSymbol]);
 
     // Set default target date to 1 hour from now
     useEffect(() => {
@@ -164,6 +163,13 @@ export default function InvestmentSimulator() {
                         message: 'Lệnh đầu tư đã kết thúc!',
                         data: data
                     });
+                    const profit = Number(data.actual_profit_usdt || 0);
+                    pushNotification({
+                        type: 'investment',
+                        title: `Khoản đầu tư ${data.symbol || ''} đã kết thúc`,
+                        message: `${profit >= 0 ? 'Lợi nhuận' : 'Thua lỗ'} ${Math.abs(profit).toFixed(2)} USDT${data.actual_profit_percent != null ? ` (${Number(data.actual_profit_percent).toFixed(2)}%)` : ''}.`,
+                        dedupeKey: `investment-closed-${data.investment_id}`,
+                    });
                 }
             } catch (e) {
                 console.error('SSE Parse Error', e);
@@ -193,6 +199,7 @@ export default function InvestmentSimulator() {
 
         try {
             let adviceObj = null;
+            let formatted = '';
 
             // Parse if it's a JSON string
             if (typeof rawAdvice === 'string' && rawAdvice.trim().startsWith('{')) {
@@ -200,7 +207,7 @@ export default function InvestmentSimulator() {
             } else if (typeof rawAdvice === 'object') {
                 adviceObj = rawAdvice;
             } else {
-                return rawAdvice; // Return as-is if not JSON
+                formatted = String(rawAdvice);
             }
 
             // Map known keys to icons/labels for better formatting
@@ -221,7 +228,7 @@ export default function InvestmentSimulator() {
             };
 
             const parts = [];
-            Object.entries(adviceObj).forEach(([key, value]) => {
+            Object.entries(adviceObj || {}).forEach(([key, value]) => {
                 // Skip internal/meta keys if any, or just show all strings
                 if (typeof value === 'string' && value.trim()) {
                     // Try to match key in map, otherwise format the key nicely
@@ -231,14 +238,33 @@ export default function InvestmentSimulator() {
                 }
             });
 
-            if (parts.length > 0) return parts.join('\n\n');
+            if (parts.length > 0) formatted = parts.join('\n\n');
 
             // Fallback for non-string values or empty object
-            return typeof adviceObj === 'string' ? adviceObj : JSON.stringify(adviceObj);
+            if (!formatted) {
+                formatted = typeof adviceObj === 'string' ? adviceObj : JSON.stringify(adviceObj);
+            }
+
+            return formatted
+                .replace(/\r/g, '')
+                .replace(/^\s*["']|["']\s*$/g, '')
+                .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+                .replace(/\*\*|__|`/g, '')
+                .replace(/^\s*[_*]\s*/gm, '')
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line
+                    && !/^Nguyên nhân:\s*SAFE-Alert Multi-Horizon/i.test(line)
+                    && !/^Lý do:\s*/i.test(line))
+                .filter((line, index, lines) => lines.indexOf(line) === index)
+                .join('\n');
 
         } catch (e) {
             console.error("Error parsing advice:", e);
-            return rawAdvice; // Return raw if parsing fails
+            return String(rawAdvice)
+                .replace(/[#*_`"]/g, '')
+                .replace(/Nguyên nhân:\s*SAFE-Alert Multi-Horizon/gi, '')
+                .trim();
         }
     };
 
@@ -248,6 +274,21 @@ export default function InvestmentSimulator() {
         const prefix = num > 0 ? '+' : '';
         const colorClass = num >= 0 ? 'text-up' : 'text-down';
         return <span className={`text-bold ${colorClass}`}>{prefix}{num.toFixed(2)}{isPercent ? '%' : '$'}</span>;
+    };
+
+    const calculatePredictionAccuracy = (investment) => {
+        if (investment.status !== 'closed') return null;
+        const actual = Number(investment.actual_profit_usdt || 0);
+        const predicted = Number(investment.predicted_profit_usdt || 0);
+        if (predicted === 0) return actual === 0 ? 100 : 0;
+        const relativeError = Math.abs(actual - predicted) / Math.abs(predicted);
+        return Math.max(0, Math.min(100, (1 - relativeError) * 100));
+    };
+
+    const getDirectionMeta = (direction) => {
+        if (direction === 'UP') return { label: 'Tăng', className: 'text-up' };
+        if (direction === 'DOWN') return { label: 'Giảm', className: 'text-down' };
+        return { label: 'Trung tính', className: 'text-neutral' };
     };
 
     const loadInvestments = async (pageNum = page, forceRefresh = false) => {
@@ -481,18 +522,27 @@ export default function InvestmentSimulator() {
                                 <div className="analysis-preview card">
                                     <div className="analysis-header">
                                         <AlertCircle size={20} />
-                                        Kết Quả Phân Tích AI
+                                        Kết quả phân tích
                                     </div>
 
-                                    <div className="advice-text">
-                                        "{getFormattedAdvice(analysisResult.advice)}"
-                                    </div>
+                                    {(() => {
+                                        const adviceLines = getFormattedAdvice(analysisResult.advice).split('\n').filter(Boolean);
+                                        return (
+                                            <div className="advice-text">
+                                                {adviceLines.map((line, index) => (
+                                                    index === 0
+                                                        ? <strong className="advice-lead" key={line}>{line}</strong>
+                                                        : <p key={`${line}-${index}`}>{line}</p>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
 
                                     <div className="stats-grid">
                                         <div className="stat-item">
                                             <div className="stat-label">Xu hướng</div>
-                                            <div className={`stat-value ${analysisResult.direction === 'UP' ? 'text-up' : 'text-down'}`}>
-                                                {analysisResult.direction}
+                                            <div className={`stat-value ${getDirectionMeta(analysisResult.direction).className}`}>
+                                                {getDirectionMeta(analysisResult.direction).label}
                                             </div>
                                         </div>
                                         <div className="stat-item">
@@ -510,6 +560,48 @@ export default function InvestmentSimulator() {
                                             <div className="stat-value">{renderProfitLabel(analysisResult.predicted_profit_percent, true)}</div>
                                         </div>
                                     </div>
+
+                                    {analysisResult.forecast && (
+                                        <div className="investment-horizon-summary">
+                                            <div className="investment-horizon-heading">
+                                                <span>Diễn biến theo từng khung</span>
+                                                <strong className={analysisResult.consensus?.agrees ? 'agrees' : 'differs'}>
+                                                    {analysisResult.consensus?.agrees ? 'Cùng xu hướng' : 'Khác xu hướng'}
+                                                </strong>
+                                            </div>
+                                            <div className="investment-horizon-grid">
+                                                {[
+                                                    ['1H', analysisResult.forecast.next_1h],
+                                                    ['4H', analysisResult.forecast.next_4h],
+                                                ].map(([label, forecast]) => {
+                                                    const directionMeta = getDirectionMeta(forecast?.direction);
+                                                    return (
+                                                        <div
+                                                            className={`investment-horizon-card ${forecast?.direction?.toLowerCase() || 'sideways'}`}
+                                                            key={label}
+                                                        >
+                                                            <div className="investment-horizon-card-head">
+                                                                <span>Khung {label === '1H' ? '1 giờ' : '4 giờ'}</span>
+                                                                <small>{Math.round(Number(forecast?.confidence || 0) * 100)}% tin cậy</small>
+                                                            </div>
+                                                            <strong className={directionMeta.className}>
+                                                                {directionMeta.label === 'Trung tính'
+                                                                    ? 'Chưa rõ xu hướng'
+                                                                    : `Thiên hướng ${directionMeta.label.toLowerCase()}`}
+                                                            </strong>
+                                                            <div className="investment-horizon-change">
+                                                                Biến động dự kiến
+                                                                <b className={directionMeta.className}>
+                                                                    {Number(forecast?.price_change_percent || 0) >= 0 ? '+' : ''}
+                                                                    {Number(forecast?.price_change_percent || 0).toFixed(2)}%
+                                                                </b>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <button
                                         onClick={() => setShowConfirmModal(true)}
@@ -561,9 +653,25 @@ export default function InvestmentSimulator() {
                                                 ))
                                             ) : (
                                                 <>
-                                                    {investments.map(inv => (
-                                                        <tr key={inv.id}>
-                                                            <td className="text-bold" style={{ color: 'var(--accent-blue)' }}>{inv.symbol}</td>
+                                                    {investments.map(inv => {
+                                                        const isExpanded = expandedInvestmentId === inv.id;
+                                                        const predictionAccuracy = calculatePredictionAccuracy(inv);
+                                                        const confidence = Math.max(0, Math.min(100, Number(inv.ai_prediction?.confidence || 0) * 100));
+                                                        const predictedPrice = Number(inv.buy_price) * (1 + Number(inv.ai_prediction?.change_percent || 0) / 100);
+                                                        const actualChange = inv.sell_price
+                                                            ? ((Number(inv.sell_price) - Number(inv.buy_price)) / Number(inv.buy_price)) * 100
+                                                            : null;
+                                                        return (
+                                                        <React.Fragment key={inv.id}>
+                                                        <tr
+                                                            className={`investment-summary-row ${isExpanded ? 'expanded' : ''}`}
+                                                            onClick={() => setExpandedInvestmentId(isExpanded ? null : inv.id)}
+                                                            aria-expanded={isExpanded}
+                                                        >
+                                                            <td className="text-bold investment-symbol-cell" style={{ color: 'var(--accent-blue)' }}>
+                                                                <ChevronDown size={14} className={isExpanded ? 'open' : ''} />
+                                                                {inv.symbol}
+                                                            </td>
                                                             <td>
                                                                 {new Date(inv.buy_time).toLocaleTimeString()}
                                                                 <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{new Date(inv.buy_time).toLocaleDateString()}</div>
@@ -589,7 +697,7 @@ export default function InvestmentSimulator() {
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                     {inv.ai_prediction?.direction === 'UP' ? <TrendingUp size={16} className="text-up" /> : <TrendingDown size={16} className="text-down" />}
                                                                     <span style={{ fontSize: '12px', fontWeight: '500' }}>
-                                                                        ${(parseFloat(inv.buy_price) * (1 + (inv.ai_prediction?.change_percent || 0) / 100)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                                                        ${predictedPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                                                     </span>
                                                                 </div>
                                                                 <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginLeft: '20px' }}>
@@ -609,7 +717,40 @@ export default function InvestmentSimulator() {
                                                                 )}
                                                             </td>
                                                         </tr>
-                                                    ))}
+                                                        {isExpanded && (
+                                                            <tr className="investment-detail-row">
+                                                                <td colSpan="8">
+                                                                    <div className="investment-detail-panel">
+                                                                        <section className="investment-detail-section forecast">
+                                                                            <span className="investment-detail-eyebrow">Dự báo tại thời điểm mua</span>
+                                                                            <div className="investment-detail-metrics">
+                                                                                <div><small>Xu hướng AI</small><strong className={inv.ai_prediction?.direction === 'UP' ? 'text-up' : 'text-down'}>{getDirectionMeta(inv.ai_prediction?.direction).label}</strong></div>
+                                                                                <div><small>Giá dự báo</small><strong>${predictedPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
+                                                                                <div><small>Thay đổi dự kiến</small><strong>{Number(inv.ai_prediction?.change_percent || 0) > 0 ? '+' : ''}{Number(inv.ai_prediction?.change_percent || 0).toFixed(2)}%</strong></div>
+                                                                                <div><small>Độ tin cậy AI</small><strong className="metric-confidence">{confidence.toFixed(1)}%</strong></div>
+                                                                            </div>
+                                                                        </section>
+                                                                        <section className="investment-detail-section outcome">
+                                                                            <span className="investment-detail-eyebrow">Kết quả thực tế</span>
+                                                                            <div className="investment-detail-metrics">
+                                                                                <div><small>Trạng thái</small><strong>{inv.status === 'closed' ? 'Đã hoàn tất' : 'Đang theo dõi'}</strong></div>
+                                                                                <div><small>Biến động thực tế</small><strong className={(actualChange || 0) >= 0 ? 'text-up' : 'text-down'}>{actualChange == null ? 'Chưa có' : `${actualChange >= 0 ? '+' : ''}${actualChange.toFixed(2)}%`}</strong></div>
+                                                                                <div><small>Lợi nhuận dự báo</small><strong>{renderProfitLabel(inv.predicted_profit_usdt)}</strong></div>
+                                                                                <div><small>Độ chính xác sau đối chiếu</small><strong className={predictionAccuracy == null ? '' : predictionAccuracy >= 60 ? 'metric-accuracy good' : 'metric-accuracy caution'}>{predictionAccuracy == null ? 'Chờ đóng lệnh' : `${predictionAccuracy.toFixed(1)}%`}</strong></div>
+                                                                            </div>
+                                                                        </section>
+                                                                        <section className="investment-ai-analysis">
+                                                                            <span className="investment-detail-eyebrow"><BrainCircuit size={14} /> Phân tích của AI</span>
+                                                                            <p>{getFormattedAdvice(inv.ai_advice)}</p>
+                                                                            <small>Độ tin cậy thể hiện mức chắc chắn lúc dự báo; độ chính xác chỉ được tính sau khi lệnh đã đóng và có kết quả thực tế.</small>
+                                                                        </section>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                        </React.Fragment>
+                                                        );
+                                                    })}
                                                     {investments.length === 0 && !loadingInvestments && (
                                                         <tr>
                                                             <td colSpan="8" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)', fontStyle: 'italic' }}>

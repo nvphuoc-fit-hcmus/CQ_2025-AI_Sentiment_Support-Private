@@ -26,7 +26,6 @@ app.get('/profile', authMiddleware, async (req, res) => {
 
 app.get('/health', (req, res) => res.json({ alive: true }));
 
-const startPaymentConsumer = require('./consumers/PaymentSuccessConsumer');
 const { initProducer } = require('./utils/kafkaProducer');
 
 // Initialize Redis, DB, and Kafka Producer
@@ -40,10 +39,6 @@ Promise.all([
   app.listen(PORT, () => {
     console.log(`Auth Service listening on ${PORT}`);
 
-    // Start Kafka Consumer
-    startPaymentConsumer().catch(err => {
-      console.error('Failed to start PaymentSuccessConsumer', err);
-    });
   });
 }).catch(err => {
   console.error('Service initialization failed:', err);

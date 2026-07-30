@@ -48,38 +48,7 @@ router.get('/users', async (req, res) => {
 
 // Change user role
 router.post('/users/:id/role', async (req, res) => {
-    const { id } = req.params;
-    const { role } = req.body;
-    // Normalize role
-    let normalizedRole = role;
-    if (['Regular', 'Standard', 'user'].includes(role)) {
-        normalizedRole = 'user';
-    } else if (role === 'VIP') {
-        normalizedRole = 'VIP';
-    } else {
-        return res.status(400).json({ error: 'invalid_role', message: 'Role must be user (or Regular) or VIP' });
-    }
-
-    try {
-        const isVip = normalizedRole === 'VIP';
-        console.log(`[Admin] Updating user ${id} role to ${normalizedRole} (is_vip=${isVip})`);
-
-        await pool.query(
-            'UPDATE users SET role = $1, is_vip = $2 WHERE id = $3',
-            [normalizedRole, isVip, id]
-        );
-
-        AuditLogger.logSecurityEvent('ADMIN_UPDATE_ROLE', 'INFO', {
-            admin_id: req.user.sub,
-            target_user_id: id,
-            new_role: role
-        });
-
-        res.json({ success: true, message: `User role updated to ${role}` });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'db_error' });
-    }
+    res.status(410).json({ error: 'vip_removed', message: 'Chức năng VIP đã được gỡ bỏ.' });
 });
 
 // Change user status (Active, Banned)

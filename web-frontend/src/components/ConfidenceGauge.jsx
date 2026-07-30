@@ -12,10 +12,14 @@ import React from 'react';
  *  - direction: "BUY" | "SELL" | "HOLD"
  *  - shouldAlert: boolean (Eq.26 gating result)
  */
-export default function ConfidenceGauge({ confidence = 0, direction = 'HOLD', shouldAlert = false }) {
+export default function ConfidenceGauge({ confidence = 0, direction = 'HOLD', shouldAlert = false, horizon = '1h' }) {
     const size = 160;
     const strokeWidth = 12;
-    const radius = (size - strokeWidth) / 2;
+    // Leave enough room for the alert halo. The previous radius placed the
+    // pulse circle outside the 160×160 viewBox, so it was clipped into a
+    // distorted oversized ring.
+    const outerPadding = 7;
+    const radius = (size - strokeWidth) / 2 - outerPadding;
     const center = size / 2;
 
     // Arc: 270 degrees (from 135° to 405°)
@@ -85,7 +89,7 @@ export default function ConfidenceGauge({ confidence = 0, direction = 'HOLD', sh
                         strokeLinecap="round"
                         className="gauge-arc"
                         style={{
-                            filter: shouldAlert ? `drop-shadow(0 0 6px ${color})` : 'none',
+                            filter: shouldAlert ? `drop-shadow(0 0 3px ${color})` : 'none',
                         }}
                     />
                 )}
@@ -95,7 +99,7 @@ export default function ConfidenceGauge({ confidence = 0, direction = 'HOLD', sh
                     <circle
                         cx={center}
                         cy={center}
-                        r={radius + strokeWidth / 2 + 4}
+                        r={radius + strokeWidth / 2 + 1}
                         fill="none"
                         stroke={color}
                         strokeWidth={1.5}
@@ -135,7 +139,7 @@ export default function ConfidenceGauge({ confidence = 0, direction = 'HOLD', sh
             </svg>
 
             {/* Horizon badges */}
-            <div className="gauge-horizon-tag">1H</div>
+            <div className="gauge-horizon-tag">{horizon.toUpperCase()}</div>
         </div>
     );
 }

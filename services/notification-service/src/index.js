@@ -33,6 +33,9 @@ const FE_URL = process.env.FE_URL || 'http://localhost:5173';
 
 // --- DB SETUP ---
 const pool = new Pool(POSTGRES_CONNECTION);
+const authPool = new Pool({
+    connectionString: process.env.AUTH_DATABASE_URL || 'postgresql://dev:dev@postgres:5432/appdb'
+});
 
 async function initDB() {
     try {
@@ -80,7 +83,7 @@ async function sendEmail(to, subject, htmlContent) {
 
     try {
         await transporter.sendMail({
-            from: `"Crypto AI Advisor" <${SMTP_CONFIG.auth.user}>`,
+            from: `"Aegis" <${SMTP_CONFIG.auth.user}>`,
             to,
             subject,
             html: htmlContent
@@ -245,6 +248,10 @@ async function syncUserSettings(payload) {
 }
 
 async function processPredictionNotification(pred) {
+    if (!pred.should_alert) {
+        console.log(`[SAFE-ALERT] Skipping ${pred.symbol}: alert gate is closed`);
+        return;
+    }
     // Extract valid data from AI payload
     const forecast = pred.forecast?.next_24h || pred.forecast?.next_1h || {};
     const confidence = forecast.confidence || 0;
@@ -255,11 +262,13 @@ async function processPredictionNotification(pred) {
         return;
     }
     try {
-        // Find users who have this symbol in their cached settings
-        const res = await pool.query(
-            `SELECT email, user_id FROM user_notification_settings 
-             WHERE $1 = ANY(prediction_symbols)`,
-            [pred.symbol]
+        // SAFE-Alert is a security-style product event: deliver to every verified,
+        // active account. UI preferences still control optional insight emails.
+        const res = await authPool.query(
+            `SELECT id AS user_id, email FROM users
+             WHERE COALESCE(email_verified, true) = true
+               AND lower(COALESCE(status, 'active')) = 'active'
+               AND email IS NOT NULL`
         );
 
         if (res.rows.length === 0) {
@@ -301,7 +310,7 @@ async function processPredictionNotification(pred) {
 
         for (const row of res.rows) {
             if (row.email && row.email.includes('@')) {
-                sendEmail(row.email, subject, html);
+                await sendEmail(row.email, subject, html);
             }
         }
     } catch (e) {
@@ -313,14 +322,15 @@ async function processInvestmentNotification(payload) {
     try {
         const userId = payload.user_id;
 
-        const pref = await pool.query(
-            `SELECT email FROM user_notification_settings 
-             WHERE user_id = $1 AND investment_enabled = true`,
+        const pref = await authPool.query(
+            `SELECT email FROM users
+             WHERE id = $1 AND COALESCE(email_verified, true) = true
+               AND lower(COALESCE(status, 'active')) = 'active'`,
             [userId]
         );
 
         if (pref.rows.length === 0) {
-            console.log(`[INVESTMENT] User ${userId} has not enabled investment notifications`);
+            console.log(`[INVESTMENT] No active verified account found for ${userId}`);
             return;
         }
 
@@ -339,7 +349,7 @@ async function processInvestmentNotification(payload) {
             return;
         }
 
-        sendEmail(email, subject, html);
+        await sendEmail(email, subject, html);
 
     } catch (e) {
         console.error('Failed to process investment notification:', e);

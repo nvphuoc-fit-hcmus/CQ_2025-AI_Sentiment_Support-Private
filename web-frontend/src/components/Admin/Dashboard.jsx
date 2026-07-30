@@ -127,7 +127,6 @@ const AdminDashboard = () => {
                                     <tr>
                                         <th>ID</th>
                                         <th>Email</th>
-                                        <th>VIP</th>
                                         <th>Quyền (Role)</th>
                                         <th>Trạng thái</th>
                                         <th>Hành động</th>
@@ -138,13 +137,6 @@ const AdminDashboard = () => {
                                         <tr key={u.id}>
                                             <td className="monospace-font" title={u.id}>{u.id.substring(0, 8)}...</td>
                                             <td>{u.email}</td>
-                                            <td>
-                                                {u.is_vip ? (
-                                                    <BadgeCheck size={20} className="icon-vip" />
-                                                ) : (
-                                                    <span className="text-muted">-</span>
-                                                )}
-                                            </td>
                                             <td>
                                                 <span className={`badge role-${u.role.toLowerCase()}`}>{u.role}</span>
                                             </td>
@@ -162,7 +154,7 @@ const AdminDashboard = () => {
                                                         <>
                                                             {u.status !== 'Banned' && u.status !== 'Locked' && (
                                                                 <>
-                                                                    {!u.is_vip && (
+                                                                    {false && (
                                                                         <button
                                                                             className="btn-action btn-vip"
                                                                             onClick={() => handleAction(u.id, 'promote_vip', `Bạn có chắc chắn muốn nâng cấp VIP cho ${u.email}?`, 'success')}
@@ -171,7 +163,7 @@ const AdminDashboard = () => {
                                                                             <ArrowUpCircle size={14} /> VIP
                                                                         </button>
                                                                     )}
-                                                                    {u.is_vip && (
+                                                                    {false && (
                                                                         <button
                                                                             className="btn-action btn-regular"
                                                                             onClick={() => handleAction(u.id, 'demote_regular', `Bạn có chắc chắn muốn hạ cấp ${u.email} xuống thường?`, 'info')}
