@@ -45,6 +45,32 @@ HORIZON_SELECTION_CONFIGS: dict[str, NewsSelectionConfig] = {
     ),
 }
 
+# Candidate pools handed to SAFEAlertNet. These mirror the training data
+# windows; the learned selective-attention layer, not this rule-based
+# pre-filter, is responsible for the final horizon Top-K decision.
+HORIZON_CANDIDATE_CONFIGS: dict[str, NewsSelectionConfig] = {
+    "15m": NewsSelectionConfig(
+        lookback_minutes=24 * 60,
+        top_k=16,
+        relevance_cfg=HORIZON_RELEVANCE_CONFIGS["15m"],
+    ),
+    "1h": NewsSelectionConfig(
+        lookback_minutes=24 * 60,
+        top_k=16,
+        relevance_cfg=HORIZON_RELEVANCE_CONFIGS["1h"],
+    ),
+    "4h": NewsSelectionConfig(
+        lookback_minutes=96 * 60,
+        top_k=32,
+        relevance_cfg=HORIZON_RELEVANCE_CONFIGS["4h"],
+    ),
+    "24h": NewsSelectionConfig(
+        lookback_minutes=168 * 60,
+        top_k=32,
+        relevance_cfg=HORIZON_RELEVANCE_CONFIGS["24h"],
+    ),
+}
+
 
 def select_top_k_news(
     news_df: pd.DataFrame,
@@ -97,6 +123,19 @@ def select_news_for_horizon(
     Returns selected DataFrame with relevance_score column.
     """
     cfg = HORIZON_SELECTION_CONFIGS.get(horizon, HORIZON_SELECTION_CONFIGS["1h"])
+    return select_top_k_news(news_df, current_time, cfg)
+
+
+def select_candidates_for_horizon(
+    news_df: pd.DataFrame,
+    current_time: pd.Timestamp,
+    horizon: str,
+) -> pd.DataFrame:
+    """Build the candidate pool consumed by SAFEAlertNet selective attention."""
+    cfg = HORIZON_CANDIDATE_CONFIGS.get(
+        horizon,
+        HORIZON_CANDIDATE_CONFIGS["1h"],
+    )
     return select_top_k_news(news_df, current_time, cfg)
 
 

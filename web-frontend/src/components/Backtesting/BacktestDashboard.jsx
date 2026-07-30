@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import useStore from '../../store';
-import { useRefreshVIPStatus } from '../../hooks/useRefreshVIPStatus';
 import StrategyBuilder from './StrategyBuilder';
 import BacktestResults from './BacktestResults';
 import backtestService from '../../services/backtestService';
@@ -9,8 +7,7 @@ import { BarChart, History, Activity, AlertCircle, Lock } from 'lucide-react';
 import './Backtest.css';
 
 export default function BacktestDashboard() {
-    const { isVip } = useStore();
-    useRefreshVIPStatus();
+    const isVip = true;
 
     const [results, setResults] = useState(null);
     const [isLoading, setIsLoading] = useState(false);

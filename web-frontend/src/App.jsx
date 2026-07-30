@@ -5,14 +5,13 @@ import Login from './components/Login.jsx';
 import TradingDashboard from './components/TradingDashboard';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
-import LeftToolbar from './components/LeftToolbar';
 import InvestmentSimulator from './components/InvestmentSimulator';
 import BacktestDashboard from './components/Backtesting';
+import NewsDashboard from './components/NewsDashboard';
 import { ToastProvider } from './components/ToastProvider';
 import { ThemeProvider, SettingsPanel } from './components/ThemeProvider';
 import './index.css';
 
-import UpgradeModal from './components/UpgradeModal';
 import AdminDashboard from './components/Admin/Dashboard';
 import Forbidden from './components/Forbidden';
 
@@ -47,22 +46,17 @@ function ProtectedAdminRoute({ children }) {
 // Component cho trang User (Trading + Investment)
 function UserApp() {
   const [currentPage, setCurrentPage] = React.useState('trading');
-  const [showUpgradeModal, setShowUpgradeModal] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
 
   useEffect(() => {
     const handleNavigate = (e) => setCurrentPage(e.detail.page);
     window.addEventListener('navigate', handleNavigate);
 
-    const handleShowUpgrade = () => setShowUpgradeModal(true);
-    window.addEventListener('showUpgradeModal', handleShowUpgrade);
-
     const handleShowSettings = () => setShowSettings(true);
     window.addEventListener('showSettings', handleShowSettings);
 
     return () => {
       window.removeEventListener('navigate', handleNavigate);
-      window.removeEventListener('showUpgradeModal', handleShowUpgrade);
       window.removeEventListener('showSettings', handleShowSettings);
     };
   }, []);
@@ -73,7 +67,6 @@ function UserApp() {
 
       {currentPage === 'trading' ? (
         <div className="main-content">
-          <LeftToolbar currentPage={currentPage} onNavigate={setCurrentPage} />
           <div className="chart-area">
             <TradingDashboard />
           </div>
@@ -83,10 +76,10 @@ function UserApp() {
         <div className="full-page-content">
           {currentPage === 'investment' && <InvestmentSimulator />}
           {currentPage === 'backtesting' && <BacktestDashboard />}
+          {currentPage === 'news' && <NewsDashboard />}
         </div>
       )}
 
-      {showUpgradeModal && <UpgradeModal onClose={() => setShowUpgradeModal(false)} />}
       <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );

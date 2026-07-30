@@ -1,15 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { createChart } from 'lightweight-charts';
 import useStore from '../store';
 import { io } from 'socket.io-client';
 import { LoadingSpinner } from './LoadingSpinner';
 import { useTheme } from './ThemeProvider';
-import { calculateSMA, calculateEMA, calculateBollingerBands, calculateRSI, calculateMACD } from '../utils/technicalIndicators';
+import {
+    calculateADX, calculateATR, calculateBollingerBands, calculateEMA,
+    calculateMACD, calculateOBV, calculateRSI, calculateSMA,
+    calculateStochastic, calculateSupertrend, calculateVWAP,
+} from '../utils/technicalIndicators';
+import { ChartCandlestick, ChartLine, Check, SlidersHorizontal } from 'lucide-react';
+import ChartDrawingOverlay from './ChartDrawingOverlay';
 
-export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTime, onCrosshairSync }) {
+const LOWER_INDICATORS = ['rsi', 'macd', 'stochastic', 'atr', 'adx', 'obv'];
+
+export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTime, onCrosshairSync, drawingTool = 'crosshair' }) {
     const chartContainerRef = useRef();
     const chartRef = useRef();
     const candleSeriesRef = useRef();
+    const lineSeriesRef = useRef();
     const volumeSeriesRef = useRef();
     const socketRef = useRef(null);
     const loadingBoolRef = useRef(false);
@@ -20,6 +30,9 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
     const sma20SeriesRef = useRef();
     const ema12SeriesRef = useRef();
     const ema26SeriesRef = useRef();
+    const ema20SeriesRef = useRef();
+    const vwapSeriesRef = useRef();
+    const supertrendSeriesRef = useRef();
     const bbUpperSeriesRef = useRef();
     const bbMiddleSeriesRef = useRef();
     const bbLowerSeriesRef = useRef();
@@ -29,6 +42,11 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
     const macdLineSeriesRef = useRef();
     const macdSignalSeriesRef = useRef();
     const macdHistogramSeriesRef = useRef();
+    const stochasticKSeriesRef = useRef();
+    const stochasticDSeriesRef = useRef();
+    const atrSeriesRef = useRef();
+    const adxSeriesRef = useRef();
+    const obvSeriesRef = useRef();
 
     // News markers
     const newsMarkersRef = useRef([]);
@@ -49,7 +67,14 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
         ema26: false,
         bb: false,
         rsi: false,
-        macd: false
+        macd: false,
+        ema20: false,
+        vwap: false,
+        supertrend: false,
+        stochastic: false,
+        atr: false,
+        adx: false,
+        obv: false,
     });
 
     const [showNews, setShowNews] = useState(false);
@@ -58,8 +83,34 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
     const [newsModalOpen, setNewsModalOpen] = useState(false);
     const [isHoveringNews, setIsHoveringNews] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false); // For fullscreen chart modal
+    const [showIndicatorMenu, setShowIndicatorMenu] = useState(false);
+    const [indicatorMenuPosition, setIndicatorMenuPosition] = useState({});
+    const [visibleNewsCount, setVisibleNewsCount] = useState(0);
+    const [chartType, setChartType] = useState('candles');
+    const [chartReadyVersion, setChartReadyVersion] = useState(0);
     const newsMapRef = useRef(new Map());
     const hoveredNewsRef = useRef(null);
+    const indicatorTriggerRef = useRef(null);
+    const indicatorMenuRef = useRef(null);
+
+    useEffect(() => {
+        if (!showIndicatorMenu) return undefined;
+        const closeOnOutside = (event) => {
+            if (
+                !indicatorTriggerRef.current?.contains(event.target)
+                && !indicatorMenuRef.current?.contains(event.target)
+            ) {
+                setShowIndicatorMenu(false);
+            }
+        };
+        const closeOnResize = () => setShowIndicatorMenu(false);
+        document.addEventListener('pointerdown', closeOnOutside);
+        window.addEventListener('resize', closeOnResize);
+        return () => {
+            document.removeEventListener('pointerdown', closeOnOutside);
+            window.removeEventListener('resize', closeOnResize);
+        };
+    }, [showIndicatorMenu]);
 
     // Initialize Chart - recreate when theme changes
     useEffect(() => {
@@ -109,6 +160,19 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
             wickDownColor: '#f23645',
         });
 
+        const lineSeries = chart.addAreaSeries({
+            lineColor: '#2962FF',
+            lineWidth: 2,
+            topColor: 'rgba(41, 98, 255, 0.28)',
+            bottomColor: 'rgba(41, 98, 255, 0.015)',
+            title: 'Giá đóng cửa',
+            visible: false,
+            priceLineVisible: true,
+            lastValueVisible: true,
+            crosshairMarkerVisible: true,
+            crosshairMarkerRadius: 4,
+        });
+
         const volumeSeries = chart.addHistogramSeries({
             priceFormat: { type: 'volume' },
             priceScaleId: '',
@@ -138,6 +202,16 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
             lineWidth: 2,
             title: 'EMA 26',
             visible: indicators.ema26
+        });
+
+        const ema20Series = chart.addLineSeries({
+            color: '#E91E63', lineWidth: 2, title: 'EMA 20', visible: indicators.ema20,
+        });
+        const vwapSeries = chart.addLineSeries({
+            color: '#FFD54F', lineWidth: 2, title: 'VWAP', visible: indicators.vwap,
+        });
+        const supertrendSeries = chart.addLineSeries({
+            color: '#089981', lineWidth: 2, title: 'Supertrend', visible: indicators.supertrend,
         });
 
         // Bollinger Bands
@@ -227,12 +301,31 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
             borderColor: chartColors.borderColor,
         });
 
+        const lowerSeriesOptions = (title, color) => ({
+            color, lineWidth: 2, title, visible: false, priceScaleId: 'lower',
+            priceLineVisible: false, lastValueVisible: true,
+        });
+        const stochasticKSeries = chart.addLineSeries(lowerSeriesOptions('Stochastic %K', '#7E57C2'));
+        const stochasticDSeries = chart.addLineSeries(lowerSeriesOptions('Stochastic %D', '#FFB74D'));
+        const atrSeries = chart.addLineSeries(lowerSeriesOptions('ATR 14', '#26C6DA'));
+        const adxSeries = chart.addLineSeries(lowerSeriesOptions('ADX 14', '#AB47BC'));
+        const obvSeries = chart.addLineSeries(lowerSeriesOptions('OBV', '#66BB6A'));
+        chart.priceScale('lower').applyOptions({
+            scaleMargins: { top: 0.76, bottom: 0 },
+            borderColor: chartColors.borderColor,
+        });
+
         chartRef.current = chart;
         candleSeriesRef.current = candlestickSeries;
+        lineSeriesRef.current = lineSeries;
+        setChartReadyVersion((version) => version + 1);
         volumeSeriesRef.current = volumeSeries;
         sma20SeriesRef.current = sma20Series;
         ema12SeriesRef.current = ema12Series;
         ema26SeriesRef.current = ema26Series;
+        ema20SeriesRef.current = ema20Series;
+        vwapSeriesRef.current = vwapSeries;
+        supertrendSeriesRef.current = supertrendSeries;
         bbUpperSeriesRef.current = bbUpperSeries;
         bbMiddleSeriesRef.current = bbMiddleSeries;
         bbLowerSeriesRef.current = bbLowerSeries;
@@ -240,6 +333,11 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
         macdLineSeriesRef.current = macdLineSeries;
         macdSignalSeriesRef.current = macdSignalSeries;
         macdHistogramSeriesRef.current = macdHistogramSeries;
+        stochasticKSeriesRef.current = stochasticKSeries;
+        stochasticDSeriesRef.current = stochasticDSeries;
+        atrSeriesRef.current = atrSeries;
+        adxSeriesRef.current = adxSeries;
+        obvSeriesRef.current = obvSeries;
 
         // Subscribe to visible range changes for infinite scroll
         chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
@@ -440,6 +538,23 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
     useEffect(() => {
         if (candleSeriesRef.current && volumeSeriesRef.current && data.length > 0) {
             candleSeriesRef.current.setData(data);
+            lineSeriesRef.current?.setData(data.map((item) => ({
+                time: item.time,
+                value: item.close,
+            })));
+            const trendLookback = Math.min(24, data.length - 1);
+            const trendIsUp = data[data.length - 1].close >= data[data.length - 1 - trendLookback].close;
+            lineSeriesRef.current?.applyOptions(trendIsUp ? {
+                lineColor: '#14b88a',
+                topColor: 'rgba(20, 184, 138, 0.30)',
+                bottomColor: 'rgba(20, 184, 138, 0.015)',
+                priceLineColor: '#14b88a',
+            } : {
+                lineColor: '#f04468',
+                topColor: 'rgba(240, 68, 104, 0.30)',
+                bottomColor: 'rgba(240, 68, 104, 0.015)',
+                priceLineColor: '#f04468',
+            });
             volumeSeriesRef.current.setData(data.map(d => ({
                 time: d.time,
                 value: d.value,
@@ -460,6 +575,15 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
             if (indicators.ema26 && ema26SeriesRef.current) {
                 const ema26Data = calculateEMA(data, 26);
                 ema26SeriesRef.current.setData(ema26Data);
+            }
+            if (indicators.ema20 && ema20SeriesRef.current) {
+                ema20SeriesRef.current.setData(calculateEMA(data, 20));
+            }
+            if (indicators.vwap && vwapSeriesRef.current) {
+                vwapSeriesRef.current.setData(calculateVWAP(data));
+            }
+            if (indicators.supertrend && supertrendSeriesRef.current) {
+                supertrendSeriesRef.current.setData(calculateSupertrend(data, 10, 3));
             }
 
             if (indicators.bb && bbUpperSeriesRef.current && bbMiddleSeriesRef.current && bbLowerSeriesRef.current) {
@@ -489,6 +613,20 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                 macdSignalSeriesRef.current.setData(macdData.signal);
                 macdHistogramSeriesRef.current.setData(macdData.histogram);
             }
+            if (indicators.stochastic && stochasticKSeriesRef.current && stochasticDSeriesRef.current) {
+                const stochastic = calculateStochastic(data, 14, 3);
+                stochasticKSeriesRef.current.setData(stochastic.k);
+                stochasticDSeriesRef.current.setData(stochastic.d);
+            }
+            if (indicators.atr && atrSeriesRef.current) {
+                atrSeriesRef.current.setData(calculateATR(data, 14));
+            }
+            if (indicators.adx && adxSeriesRef.current) {
+                adxSeriesRef.current.setData(calculateADX(data, 14));
+            }
+            if (indicators.obv && obvSeriesRef.current) {
+                obvSeriesRef.current.setData(calculateOBV(data));
+            }
 
             // Update oldest time for infinite scroll
             if (oldestTimeRef.current === null || data[0].time < oldestTimeRef.current) {
@@ -499,6 +637,11 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
             latestTimeRef.current = data[data.length - 1].time;
         }
     }, [data, isDark, indicators]);
+
+    useEffect(() => {
+        candleSeriesRef.current?.applyOptions({ visible: chartType === 'candles' });
+        lineSeriesRef.current?.applyOptions({ visible: chartType === 'line' });
+    }, [chartType, isDark]);
 
     // Update indicator visibility
     useEffect(() => {
@@ -511,6 +654,9 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
         if (ema26SeriesRef.current) {
             ema26SeriesRef.current.applyOptions({ visible: indicators.ema26 });
         }
+        ema20SeriesRef.current?.applyOptions({ visible: indicators.ema20 });
+        vwapSeriesRef.current?.applyOptions({ visible: indicators.vwap });
+        supertrendSeriesRef.current?.applyOptions({ visible: indicators.supertrend });
         if (bbUpperSeriesRef.current && bbMiddleSeriesRef.current && bbLowerSeriesRef.current) {
             bbUpperSeriesRef.current.applyOptions({ visible: indicators.bb });
             bbMiddleSeriesRef.current.applyOptions({ visible: indicators.bb });
@@ -524,6 +670,11 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
             macdSignalSeriesRef.current.applyOptions({ visible: indicators.macd });
             macdHistogramSeriesRef.current.applyOptions({ visible: indicators.macd });
         }
+        stochasticKSeriesRef.current?.applyOptions({ visible: indicators.stochastic });
+        stochasticDSeriesRef.current?.applyOptions({ visible: indicators.stochastic });
+        atrSeriesRef.current?.applyOptions({ visible: indicators.atr });
+        adxSeriesRef.current?.applyOptions({ visible: indicators.adx });
+        obvSeriesRef.current?.applyOptions({ visible: indicators.obv });
     }, [indicators]);
 
     // Add news markers to chart
@@ -534,16 +685,48 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                 candleSeriesRef.current.setMarkers([]);
                 newsMarkersRef.current = [];
                 newsMapRef.current.clear();
+                setVisibleNewsCount(0);
                 setSelectedNews(null);
                 return;
             }
 
-            // Create markers for ALL news events at their exact timestamps
+            // Lightweight Charts requires marker timestamps to exist in the
+            // candle series. Snap articles to their nearest loaded candle.
             const newsMap = new Map();
+            const candleTimes = data.map(candle => candle.time);
+            const firstTime = candleTimes[0];
+            const lastTime = candleTimes[candleTimes.length - 1];
+            const bucketSeconds = candleTimes.length > 1
+                ? Math.max(60, candleTimes[1] - candleTimes[0])
+                : 3600;
+            const groupedNews = new Map();
 
-            const markersWithNews = newsData
-                .map(news => {
-                    const newsTime = Math.floor(new Date(news.time).getTime() / 1000);
+            newsData.forEach(news => {
+                const newsTime = Math.floor(new Date(news.time).getTime() / 1000);
+                if (!Number.isFinite(newsTime) || newsTime < firstTime - bucketSeconds || newsTime > lastTime + bucketSeconds) return;
+
+                let low = 0;
+                let high = candleTimes.length - 1;
+                while (low < high) {
+                    const mid = Math.floor((low + high) / 2);
+                    if (candleTimes[mid] < newsTime) low = mid + 1;
+                    else high = mid;
+                }
+                const rightTime = candleTimes[low];
+                const leftTime = low > 0 ? candleTimes[low - 1] : rightTime;
+                const candleTime = Math.abs(newsTime - leftTime) <= Math.abs(rightTime - newsTime)
+                    ? leftTime
+                    : rightTime;
+                const group = groupedNews.get(candleTime) || [];
+                group.push(news);
+                groupedNews.set(candleTime, group);
+            });
+
+            const markersWithNews = Array.from(groupedNews.entries())
+                .map(([candleTime, articles]) => {
+                    const news = [...articles].sort((a, b) =>
+                        Math.abs(Number(b.sentiment_score || 0)) - Math.abs(Number(a.sentiment_score || 0))
+                    )[0];
 
                     // Determine marker color based on sentiment
                     let color = '#2196F3'; // Blue for neutral
@@ -553,15 +736,14 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                         color = '#F44336'; // Red for negative
                     }
 
-                    // Store news data in map
-                    newsMap.set(newsTime, news);
+                    newsMap.set(candleTime, { ...news, relatedNews: articles, newsCount: articles.length });
 
                     return {
-                        time: newsTime,
+                        time: candleTime,
                         position: 'aboveBar',
                         color: color,
                         shape: 'circle',
-                        text: 'N',
+                        text: articles.length > 1 ? `N${articles.length}` : 'N',
                         size: 1
                     };
                 })
@@ -570,6 +752,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
             candleSeriesRef.current.setMarkers(markersWithNews);
             newsMarkersRef.current = markersWithNews;
             newsMapRef.current = newsMap;
+            setVisibleNewsCount(markersWithNews.length);
             console.log(`[${chartId}] Added ${markersWithNews.length} news markers to chart (all news items)`);
 
             // Auto-select first news if none selected
@@ -707,6 +890,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                 if (candleSeriesRef.current && volumeSeriesRef.current) {
                     try {
                         candleSeriesRef.current.update(candle);
+                        lineSeriesRef.current?.update({ time: candle.time, value: candle.close });
                         volumeSeriesRef.current.update(volume);
                     } catch (error) {
                         console.error(`[${chartId}] Error updating chart:`, error);
@@ -735,10 +919,32 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
     }, [symbol, timeframe, chartId]);
 
     const toggleIndicator = (indicator) => {
-        setIndicators(prev => ({
-            ...prev,
-            [indicator]: !prev[indicator]
-        }));
+        setIndicators((prev) => {
+            const next = { ...prev };
+            if (LOWER_INDICATORS.includes(indicator) && !prev[indicator]) {
+                LOWER_INDICATORS.forEach((key) => { next[key] = false; });
+            }
+            next[indicator] = !prev[indicator];
+            return next;
+        });
+    };
+
+    const toggleIndicatorMenu = () => {
+        if (!showIndicatorMenu && indicatorTriggerRef.current) {
+            const rect = indicatorTriggerRef.current.getBoundingClientRect();
+            const bodyZoom = Number.parseFloat(window.getComputedStyle(document.body).zoom) || 1;
+            const openUpward = window.innerHeight - rect.bottom < 440 * bodyZoom;
+            setIndicatorMenuPosition(openUpward
+                ? {
+                    right: (window.innerWidth - rect.right) / bodyZoom,
+                    bottom: (window.innerHeight - rect.top) / bodyZoom + 8,
+                }
+                : {
+                    right: (window.innerWidth - rect.right) / bodyZoom,
+                    top: rect.bottom / bodyZoom + 8,
+                });
+        }
+        setShowIndicatorMenu((open) => !open);
     };
 
     // Determine if system is in Abstain mode (Uncertain Zone)
@@ -767,102 +973,112 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                 flexWrap: 'wrap',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
             }}>
-                <button
-                    onClick={() => toggleIndicator('sma20')}
-                    style={{
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: indicators.sma20 ? '#2962FF' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
-                        color: indicators.sma20 ? '#fff' : (isDark ? '#d1d4dc' : '#333'),
-                        fontWeight: indicators.sma20 ? 'bold' : 'normal',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    SMA 20
-                </button>
-                <button
-                    onClick={() => toggleIndicator('ema12')}
-                    style={{
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: indicators.ema12 ? '#FF6D00' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
-                        color: indicators.ema12 ? '#fff' : (isDark ? '#d1d4dc' : '#333'),
-                        fontWeight: indicators.ema12 ? 'bold' : 'normal',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    EMA 12
-                </button>
-                <button
-                    onClick={() => toggleIndicator('ema26')}
-                    style={{
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: indicators.ema26 ? '#9C27B0' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
-                        color: indicators.ema26 ? '#fff' : (isDark ? '#d1d4dc' : '#333'),
-                        fontWeight: indicators.ema26 ? 'bold' : 'normal',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    EMA 26
-                </button>
-                <button
-                    onClick={() => toggleIndicator('bb')}
-                    style={{
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: indicators.bb ? '#2196F3' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
-                        color: indicators.bb ? '#fff' : (isDark ? '#d1d4dc' : '#333'),
-                        fontWeight: indicators.bb ? 'bold' : 'normal',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    BB
-                </button>
-                <button
-                    onClick={() => toggleIndicator('rsi')}
-                    style={{
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: indicators.rsi ? '#FF9800' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
-                        color: indicators.rsi ? '#fff' : (isDark ? '#d1d4dc' : '#333'),
-                        fontWeight: indicators.rsi ? 'bold' : 'normal',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    RSI
-                </button>
-                <button
-                    onClick={() => toggleIndicator('macd')}
-                    style={{
-                        padding: '4px 8px',
-                        fontSize: '11px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: indicators.macd ? '#2196F3' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
-                        color: indicators.macd ? '#fff' : (isDark ? '#d1d4dc' : '#333'),
-                        fontWeight: indicators.macd ? 'bold' : 'normal',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    MACD
-                </button>
+                <div className="chart-type-switch" role="group" aria-label="Kiểu biểu đồ">
+                    <button
+                        type="button"
+                        className={chartType === 'candles' ? 'active' : ''}
+                        onClick={() => setChartType('candles')}
+                        title="Biểu đồ nến"
+                        aria-pressed={chartType === 'candles'}
+                    >
+                        <ChartCandlestick size={14} />
+                    </button>
+                    <button
+                        type="button"
+                        className={chartType === 'line' ? 'active' : ''}
+                        onClick={() => setChartType('line')}
+                        title="Biểu đồ đường"
+                        aria-pressed={chartType === 'line'}
+                    >
+                        <ChartLine size={14} />
+                    </button>
+                </div>
+                <div className="chart-indicator-control">
+                    <button
+                        ref={indicatorTriggerRef}
+                        type="button"
+                        className={`chart-indicator-trigger ${Object.values(indicators).some(Boolean) ? 'active' : ''}`}
+                        onClick={toggleIndicatorMenu}
+                    >
+                        <SlidersHorizontal size={13} />
+                        Chỉ báo
+                        {Object.values(indicators).filter(Boolean).length > 0 && (
+                            <span className="chart-indicator-count">
+                                {Object.values(indicators).filter(Boolean).length}
+                            </span>
+                        )}
+                    </button>
+
+                    {showIndicatorMenu && createPortal((
+                        <div ref={indicatorMenuRef} className="chart-indicator-menu" style={indicatorMenuPosition}>
+                            <div className="chart-indicator-menu-title">Chỉ báo kỹ thuật</div>
+                            <div className="chart-indicator-group-label">Xu hướng</div>
+                            {[
+                                ['sma20', 'SMA (20)', '#2962FF'],
+                                ['ema12', 'EMA (12)', '#FF6D00'],
+                                ['ema26', 'EMA (26)', '#9C27B0'],
+                                ['ema20', 'EMA (20)', '#E91E63'],
+                                ['vwap', 'VWAP', '#FFD54F'],
+                                ['supertrend', 'Supertrend (10, 3)', '#089981'],
+                                ['bb', 'Bollinger Bands (20, 2)', '#2196F3'],
+                            ].map(([key, label, color]) => (
+                                <button
+                                    type="button"
+                                    key={key}
+                                    className={`chart-indicator-option ${indicators[key] ? 'selected' : ''}`}
+                                    onClick={() => toggleIndicator(key)}
+                                >
+                                    <span className="chart-indicator-swatch" style={{ background: color }} />
+                                    <span>{label}</span>
+                                    {indicators[key] && <Check size={13} />}
+                                </button>
+                            ))}
+                            <div className="chart-indicator-group-label">Động lượng</div>
+                            {[
+                                ['rsi', 'RSI (14)', '#FF9800'],
+                                ['macd', 'MACD (12, 26, 9)', '#00BCD4'],
+                                ['stochastic', 'Stochastic (14, 3)', '#7E57C2'],
+                            ].map(([key, label, color]) => (
+                                <button
+                                    type="button"
+                                    key={key}
+                                    className={`chart-indicator-option ${indicators[key] ? 'selected' : ''}`}
+                                    onClick={() => toggleIndicator(key)}
+                                >
+                                    <span className="chart-indicator-swatch" style={{ background: color }} />
+                                    <span>{label}</span>
+                                    {indicators[key] && <Check size={13} />}
+                                </button>
+                            ))}
+                            <div className="chart-indicator-group-label">Biến động</div>
+                            {[
+                                ['atr', 'ATR (14)', '#26C6DA'],
+                                ['adx', 'ADX (14)', '#AB47BC'],
+                            ].map(([key, label, color]) => (
+                                <button
+                                    type="button"
+                                    key={key}
+                                    className={`chart-indicator-option ${indicators[key] ? 'selected' : ''}`}
+                                    onClick={() => toggleIndicator(key)}
+                                >
+                                    <span className="chart-indicator-swatch" style={{ background: color }} />
+                                    <span>{label}</span>
+                                    {indicators[key] && <Check size={13} />}
+                                </button>
+                            ))}
+                            <div className="chart-indicator-group-label">Khối lượng</div>
+                            <button
+                                type="button"
+                                className={`chart-indicator-option ${indicators.obv ? 'selected' : ''}`}
+                                onClick={() => toggleIndicator('obv')}
+                            >
+                                <span className="chart-indicator-swatch" style={{ background: '#66BB6A' }} />
+                                <span>On Balance Volume</span>
+                                {indicators.obv && <Check size={13} />}
+                            </button>
+                        </div>
+                    ), document.body)}
+                </div>
                 <button
                     onClick={() => setShowNews(!showNews)}
                     style={{
@@ -877,7 +1093,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                         transition: 'all 0.2s'
                     }}
                 >
-                    📰 News
+                    📰 News{showNews ? ` (${visibleNewsCount})` : ''}
                 </button>
 
                 {/* Only show expand button if not already expanded */}
@@ -941,6 +1157,12 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                 </div>
             )}
 
+            {showNews && newsData.length > 0 && visibleNewsCount === 0 && (
+                <div className="chart-news-empty">
+                    Không có tin DB trùng với vùng nến đang tải
+                </div>
+            )}
+
             {/* News Tooltip */}
             {showNews && newsTooltip && (
                 <div style={{
@@ -975,6 +1197,14 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                     height: '100%',
                     cursor: isHoveringNews ? 'pointer' : 'default'
                 }}
+            />
+            <ChartDrawingOverlay
+                activeTool={drawingTool}
+                chartRef={chartRef}
+                priceSeriesRef={chartType === 'line' ? lineSeriesRef : candleSeriesRef}
+                containerRef={chartContainerRef}
+                chartReadyVersion={chartReadyVersion}
+                candleData={data}
             />
             {/* Loading Overlay */}
             {isLoading && (
@@ -1318,6 +1548,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                                 symbol={symbol}
                                 timeframe={timeframe}
                                 chartId={`${chartId}-expanded`}
+                                drawingTool={drawingTool}
                             />
                         </div>
                     </div>

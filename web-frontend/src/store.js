@@ -261,18 +261,18 @@ const useStore = create((set, get) => ({
     get().connectSSE();
   },
 
-  register: async (email, password, isVip) => {
+  register: async (email, password) => {
     const res = await fetch(`${AUTH_BASE}/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, is_vip: isVip }),
+      body: JSON.stringify({ email, password }),
       credentials: 'include' // Enable cookie sending/receiving
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || res.statusText || 'Registration failed');
     }
-    await get().login(email, password);
+    return res.json();
   },
 
   login: async (email, password) => {

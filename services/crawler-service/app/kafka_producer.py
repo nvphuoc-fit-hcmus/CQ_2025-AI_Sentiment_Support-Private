@@ -8,6 +8,7 @@ LOG = logging.getLogger("crawler.kafka")
 
 KAFKA_BROKER = os.getenv("KAFKA_BROKERS", "kafka:9092")
 TOPIC = os.getenv("NEWS_RAW_TOPIC", "news_raw")
+ANALYZED_TOPIC = os.getenv("NEWS_ANALYZED_TOPIC", "news_analyzed")
 
 # Allow passing additional producer config via env (comma-separated key=val)
 producer_config = {
@@ -29,7 +30,10 @@ def create_startup_topics():
     admin_client = AdminClient({'bootstrap.servers': KAFKA_BROKER})
     # Create news_raw topic with 1 partition and replication factor 1 (since we have 1 broker)
     # You can adjust num_partitions and replication_factor as needed.
-    new_topics = [NewTopic(TOPIC, num_partitions=1, replication_factor=1)]
+    new_topics = [
+        NewTopic(TOPIC, num_partitions=1, replication_factor=1),
+        NewTopic(ANALYZED_TOPIC, num_partitions=1, replication_factor=1),
+    ]
     
     # Call create_topics to asynchronously create topics.
     fs = admin_client.create_topics(new_topics)
@@ -58,6 +62,10 @@ def produce_news(data: dict, flush: bool = False):
     try:
         payload = json.dumps(data, ensure_ascii=False)
         producer.produce(TOPIC, payload.encode("utf-8"), callback=_delivery)
+        # Extraction already includes a normalized sentiment score, so publish
+        # it directly for core-service persistence as well. There is no
+        # separate raw-to-analyzed worker in this deployment.
+        producer.produce(ANALYZED_TOPIC, payload.encode("utf-8"), callback=_delivery)
         # poll to serve delivery callbacks
         producer.poll(0)
     except Exception as e:

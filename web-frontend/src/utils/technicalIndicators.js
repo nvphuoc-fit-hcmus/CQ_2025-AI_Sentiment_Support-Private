@@ -226,3 +226,130 @@ export function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeri
         histogram
     };
 }
+
+export function calculateVWAP(data) {
+    let cumulativeValue = 0;
+    let cumulativeVolume = 0;
+    return data.map((item) => {
+        const typicalPrice = (item.high + item.low + item.close) / 3;
+        const volume = Number(item.value ?? item.volume ?? 0);
+        cumulativeValue += typicalPrice * volume;
+        cumulativeVolume += volume;
+        return { time: item.time, value: cumulativeVolume ? cumulativeValue / cumulativeVolume : typicalPrice };
+    });
+}
+
+export function calculateStochastic(data, period = 14, smooth = 3) {
+    if (!data || data.length < period) return { k: [], d: [] };
+    const k = [];
+    for (let i = period - 1; i < data.length; i++) {
+        const window = data.slice(i - period + 1, i + 1);
+        const highest = Math.max(...window.map((item) => item.high));
+        const lowest = Math.min(...window.map((item) => item.low));
+        const value = highest === lowest ? 50 : ((data[i].close - lowest) / (highest - lowest)) * 100;
+        k.push({ time: data[i].time, value });
+    }
+    const d = [];
+    for (let i = smooth - 1; i < k.length; i++) {
+        const value = k.slice(i - smooth + 1, i + 1).reduce((sum, item) => sum + item.value, 0) / smooth;
+        d.push({ time: k[i].time, value });
+    }
+    return { k, d };
+}
+
+export function calculateATR(data, period = 14) {
+    if (!data || data.length < period + 1) return [];
+    const trueRanges = data.map((item, index) => {
+        if (index === 0) return item.high - item.low;
+        return Math.max(
+            item.high - item.low,
+            Math.abs(item.high - data[index - 1].close),
+            Math.abs(item.low - data[index - 1].close),
+        );
+    });
+    let atr = trueRanges.slice(1, period + 1).reduce((sum, value) => sum + value, 0) / period;
+    const result = [{ time: data[period].time, value: atr }];
+    for (let i = period + 1; i < data.length; i++) {
+        atr = ((atr * (period - 1)) + trueRanges[i]) / period;
+        result.push({ time: data[i].time, value: atr });
+    }
+    return result;
+}
+
+export function calculateADX(data, period = 14) {
+    if (!data || data.length < period * 2 + 1) return [];
+    const tr = [];
+    const plusDM = [];
+    const minusDM = [];
+    for (let i = 1; i < data.length; i++) {
+        const upMove = data[i].high - data[i - 1].high;
+        const downMove = data[i - 1].low - data[i].low;
+        tr.push(Math.max(
+            data[i].high - data[i].low,
+            Math.abs(data[i].high - data[i - 1].close),
+            Math.abs(data[i].low - data[i - 1].close),
+        ));
+        plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+        minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+    }
+    let smoothTR = tr.slice(0, period).reduce((a, b) => a + b, 0);
+    let smoothPlus = plusDM.slice(0, period).reduce((a, b) => a + b, 0);
+    let smoothMinus = minusDM.slice(0, period).reduce((a, b) => a + b, 0);
+    const dx = [];
+    for (let i = period; i < tr.length; i++) {
+        smoothTR = smoothTR - smoothTR / period + tr[i];
+        smoothPlus = smoothPlus - smoothPlus / period + plusDM[i];
+        smoothMinus = smoothMinus - smoothMinus / period + minusDM[i];
+        const plusDI = smoothTR ? (100 * smoothPlus) / smoothTR : 0;
+        const minusDI = smoothTR ? (100 * smoothMinus) / smoothTR : 0;
+        const value = plusDI + minusDI ? (100 * Math.abs(plusDI - minusDI)) / (plusDI + minusDI) : 0;
+        dx.push({ time: data[i + 1].time, value });
+    }
+    let adx = dx.slice(0, period).reduce((sum, item) => sum + item.value, 0) / period;
+    const result = [{ time: dx[period - 1].time, value: adx }];
+    for (let i = period; i < dx.length; i++) {
+        adx = ((adx * (period - 1)) + dx[i].value) / period;
+        result.push({ time: dx[i].time, value: adx });
+    }
+    return result;
+}
+
+export function calculateOBV(data) {
+    let obv = 0;
+    return data.map((item, index) => {
+        if (index > 0) {
+            const volume = Number(item.value ?? item.volume ?? 0);
+            if (item.close > data[index - 1].close) obv += volume;
+            if (item.close < data[index - 1].close) obv -= volume;
+        }
+        return { time: item.time, value: obv };
+    });
+}
+
+export function calculateSupertrend(data, period = 10, multiplier = 3) {
+    const atr = calculateATR(data, period);
+    if (!atr.length) return [];
+    const atrByTime = new Map(atr.map((item) => [item.time, item.value]));
+    const result = [];
+    let finalUpper = 0;
+    let finalLower = 0;
+    let trendUp = true;
+    data.forEach((item, index) => {
+        const atrValue = atrByTime.get(item.time);
+        if (atrValue == null) return;
+        const middle = (item.high + item.low) / 2;
+        const basicUpper = middle + multiplier * atrValue;
+        const basicLower = middle - multiplier * atrValue;
+        const previousClose = index > 0 ? data[index - 1].close : item.close;
+        finalUpper = !finalUpper || basicUpper < finalUpper || previousClose > finalUpper ? basicUpper : finalUpper;
+        finalLower = !finalLower || basicLower > finalLower || previousClose < finalLower ? basicLower : finalLower;
+        if (item.close > finalUpper) trendUp = true;
+        else if (item.close < finalLower) trendUp = false;
+        result.push({
+            time: item.time,
+            value: trendUp ? finalLower : finalUpper,
+            color: trendUp ? '#089981' : '#f23645',
+        });
+    });
+    return result;
+}

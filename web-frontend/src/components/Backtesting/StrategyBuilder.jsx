@@ -3,7 +3,7 @@ import { Plus, Trash2, Play, Settings } from 'lucide-react';
 import './Backtest.css';
 
 const INDICATORS = ['RSI', 'MACD', 'EMA20', 'SMA50', 'BollingerBands'];
-const AI_PREDICTIONS = ['direction_1h', 'confidence_1h', 'volatility'];
+const AI_PREDICTIONS = ['direction_1h', 'confidence_1h', 'direction_4h', 'confidence_4h', 'volatility'];
 
 const SYMBOLS = [
     'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
@@ -47,6 +47,23 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
 
     const addCondition = () => {
         setConditions([...conditions, { type: 'indicator', name: 'RSI', operator: '<', value: 30 }]);
+    };
+
+    const applySafeAlertPreset = () => {
+        setStrategyName(`SAFE-Alert 1H + 4H + News ${getDefaultStrategyName().replace('My AI Strategy ', '')}`);
+        setLogic('AND');
+        setAction('BUY');
+        setTimeframe('1h');
+        setConditions([
+            { type: 'ai', field: 'direction_1h', operator: '=', value: 'UP' },
+            { type: 'ai', field: 'confidence_1h', operator: '>=', value: 0.52 },
+            { type: 'ai', field: 'direction_4h', operator: '=', value: 'UP' },
+            { type: 'news', field: 'sentiment_score', operator: '>', value: 0 },
+        ]);
+        setStartDate('2024-08-29');
+        setEndDate('2025-08-26');
+        setTakeProfit(5);
+        setStopLoss(2);
     };
 
     const removeCondition = (index) => {
@@ -97,12 +114,17 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
 
         // Auto-update defaults based on AI Field
         if (key === 'field' && updated[index].type === 'ai') {
-            if (value === 'direction_1h') {
+            if (value === 'direction_1h' || value === 'direction_4h') {
                 updated[index].operator = '=';
                 updated[index].value = 'UP';
             } else if (value === 'confidence_1h') {
                 updated[index].operator = '>';
-                updated[index].value = 0.7;
+                updated[index].value = 0.52;
+            } else if (value === 'confidence_4h') {
+                updated[index].operator = '>';
+                // The trained 4H policy uses tau≈0.366; 0.52 suppresses every
+                // historical 4H prediction in the current checkpoint.
+                updated[index].value = 0.37;
             } else if (value === 'volatility') {
                 updated[index].operator = '=';
                 updated[index].value = 'HIGH'; // Or LOW depending on strategy
@@ -137,6 +159,10 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
             <div className="strategy-section-title">
                 <Settings size={18} className="text-blue" /> Strategy Configuration
             </div>
+            <button type="button" className="btn-secondary" onClick={applySafeAlertPreset}
+                style={{ width: '100%', marginBottom: 14 }}>
+                Dùng mẫu SAFE-Alert 1H + 4H + News
+            </button>
 
             {/* Basic Settings */}
             <div className="form-group">
@@ -282,6 +308,8 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
                             >
                                 <option value="direction_1h">Dir 1h</option>
                                 <option value="confidence_1h">Conf 1h</option>
+                                <option value="direction_4h">Dir 4h</option>
+                                <option value="confidence_4h">Conf 4h</option>
                                 <option value="volatility">Vol</option>
                             </select>
                         )}
@@ -301,7 +329,7 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
                         </select>
 
                         {/* Value Input - Dynamic based on Field */}
-                        {(cond.type === 'ai' && (cond.field === 'direction_1h' || cond.field === 'direction_24h')) ? (
+                        {(cond.type === 'ai' && (cond.field === 'direction_1h' || cond.field === 'direction_4h')) ? (
                             <select
                                 value={cond.value}
                                 onChange={(e) => updateCondition(idx, 'value', e.target.value)}

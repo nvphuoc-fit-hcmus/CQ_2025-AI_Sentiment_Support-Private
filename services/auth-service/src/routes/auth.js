@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { pool } = require('../db');
 const { signToken, getPublicKeyPem, verifyToken, getJWKS } = require('../utils/jwt');
 const TokenBlacklist = require('../services/TokenBlacklist');
@@ -7,33 +8,154 @@ const RefreshToken = require('../services/RefreshToken');
 const AuditLogger = require('../utils/AuditLogger');
 const authMiddleware = require('../middleware/auth');
 const { publishUserSettingsUpdate } = require('../utils/kafkaProducer');
+const { sendVerificationEmail, sendPasswordChangeOtpEmail, sendPasswordChangedEmail } = require('../services/EmailService');
 
 const router = express.Router();
 router.use(express.json());
 
-// Register using email + password + optional is_vip
+const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+const createOtp = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+
+// Register using email + password. New accounts must verify their email.
 router.post('/register', async (req, res) => {
-  const { email, password, is_vip } = req.body || {};
+  const { email, password, display_name } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'email and password required' });
 
   // basic email normalization
   const normEmail = String(email).trim().toLowerCase();
-  const isVip = !!is_vip;
-
   try {
     const hash = await bcrypt.hash(password, 12);
-    // Explicitly set default role and status if not provided (though DB defaults exist)
+    const verificationOtp = createOtp();
+    const verificationHash = hashToken(verificationOtp);
     const r = await pool.query(
-      "INSERT INTO users(email, password, is_vip, role, status) VALUES($1, $2, $3, 'Regular', 'Active') RETURNING id, email, created_at, is_vip, role, status",
-      [normEmail, hash, isVip]
+      `INSERT INTO users(
+         email, password, display_name, is_vip, role, status, email_verified,
+         email_verification_token_hash, email_verification_expires_at
+       ) VALUES($1, $2, $3, false, 'Regular', 'Active', false, $4, NOW() + INTERVAL '10 minutes')
+       RETURNING id, email, display_name, created_at, role, status, email_verified`,
+      [normEmail, hash, String(display_name || '').trim() || null, verificationHash]
     );
     const user = r.rows[0];
-    res.json({ user });
+    const mail = await sendVerificationEmail(normEmail, verificationOtp);
+    res.status(201).json({
+      user,
+      verification_required: true,
+      message: 'Mã OTP 6 số đã được gửi đến email của bạn.',
+      ...(process.env.NODE_ENV !== 'production' && !mail.delivered
+        ? { development_otp: mail.developmentOtp }
+        : {}),
+    });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'email_exists' });
     console.error(err);
     res.status(500).json({ error: 'db_error' });
   }
+});
+
+router.post('/verify-email', async (req, res) => {
+  const token = String(req.body?.otp || req.body?.token || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!token) return res.status(400).json({ error: 'verification_otp_required' });
+  const result = await pool.query(
+    `UPDATE users
+     SET email_verified = true,
+         email_verification_token_hash = NULL,
+         email_verification_expires_at = NULL
+     WHERE email_verification_token_hash = $1
+       AND email_verification_expires_at > NOW()
+       AND ($2 = '' OR lower(email) = lower($2))
+     RETURNING id, email`,
+    [hashToken(token), email]
+  );
+  if (!result.rowCount) return res.status(400).json({ error: 'verification_otp_invalid_or_expired' });
+  res.json({ verified: true, message: 'Email đã được xác thực. Bạn có thể đăng nhập.' });
+});
+
+router.post('/resend-verification', async (req, res) => {
+  const normEmail = String(req.body?.email || '').trim().toLowerCase();
+  const userResult = await pool.query(
+    'SELECT id, email_verified FROM users WHERE lower(email) = lower($1) LIMIT 1',
+    [normEmail]
+  );
+  const user = userResult.rows[0];
+  // Deliberately return the same response to avoid account enumeration.
+  if (!user || user.email_verified) return res.json({ message: 'Nếu tài khoản hợp lệ, email xác thực đã được gửi.' });
+  const token = createOtp();
+  await pool.query(
+    `UPDATE users SET email_verification_token_hash=$1,
+      email_verification_expires_at=NOW() + INTERVAL '10 minutes' WHERE id=$2`,
+    [hashToken(token), user.id]
+  );
+  const mail = await sendVerificationEmail(normEmail, token);
+  res.json({
+    message: 'Email xác thực đã được gửi lại.',
+    ...(process.env.NODE_ENV !== 'production' && !mail.delivered
+      ? { development_otp: mail.developmentOtp }
+      : {}),
+  });
+});
+
+// Password recovery by email OTP.
+router.post('/forgot-password/request-otp', async (req, res) => {
+  const normEmail = String(req.body?.email || '').trim().toLowerCase();
+  if (!normEmail) return res.status(400).json({ error: 'email_required' });
+  const result = await pool.query(
+    `SELECT id,email FROM users WHERE lower(email)=lower($1)
+     AND COALESCE(email_verified,true)=true
+     AND lower(COALESCE(status,'active'))='active' LIMIT 1`,
+    [normEmail]
+  );
+  const user = result.rows[0];
+  if (!user) {
+    return res.status(404).json({
+      error: 'recovery_email_not_found',
+      message: 'Email không tồn tại trong hệ thống, chưa được xác thực hoặc tài khoản không hoạt động.',
+    });
+  }
+
+  const otp = createOtp();
+  await pool.query(
+    `UPDATE users SET password_reset_otp_hash=$1,
+     password_reset_otp_expires_at=NOW()+INTERVAL '10 minutes' WHERE id=$2`,
+    [hashToken(otp), user.id]
+  );
+  const mail = await sendPasswordChangeOtpEmail(user.email, otp);
+  res.json({
+    otp_required: true,
+    message: 'Mã OTP 6 số đã được gửi và có hiệu lực trong 10 phút.',
+    ...(process.env.NODE_ENV !== 'production' && !mail.delivered
+      ? { development_otp: mail.developmentOtp } : {}),
+  });
+});
+
+router.post('/forgot-password/reset', async (req, res) => {
+  const normEmail = String(req.body?.email || '').trim().toLowerCase();
+  const otp = String(req.body?.otp || '').trim();
+  const newPassword = String(req.body?.new_password || '');
+  if (!normEmail || !otp || !newPassword) {
+    return res.status(400).json({ error: 'email_otp_and_new_password_required' });
+  }
+  if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(newPassword)) {
+    return res.status(400).json({ error: 'weak_password' });
+  }
+  const result = await pool.query(
+    `SELECT id,email FROM users WHERE lower(email)=lower($1)
+     AND password_reset_otp_hash=$2 AND password_reset_otp_expires_at>NOW()
+     AND COALESCE(email_verified,true)=true
+     AND lower(COALESCE(status,'active'))='active' LIMIT 1`,
+    [normEmail, hashToken(otp)]
+  );
+  if (!result.rowCount) {
+    return res.status(400).json({ error: 'password_reset_otp_invalid_or_expired' });
+  }
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await pool.query(
+    `UPDATE users SET password=$1,password_reset_otp_hash=NULL,
+     password_reset_otp_expires_at=NULL WHERE id=$2`,
+    [passwordHash, result.rows[0].id]
+  );
+  await sendPasswordChangedEmail(result.rows[0].email);
+  res.json({ changed: true, message: 'Mật khẩu đã được đặt lại.' });
 });
 
 // Login using email + password
@@ -46,7 +168,7 @@ router.post('/login', async (req, res) => {
   const userAgent = req.headers['user-agent'] || 'unknown';
 
   try {
-    const r = await pool.query('SELECT id, email, password, is_vip, role, status FROM users WHERE lower(email) = lower($1) LIMIT 1', [normEmail]);
+    const r = await pool.query('SELECT id, email, password, is_vip, role, status, COALESCE(email_verified, true) AS email_verified FROM users WHERE lower(email) = lower($1) LIMIT 1', [normEmail]);
     const row = r.rows[0];
 
     if (!row) {
@@ -66,6 +188,9 @@ router.post('/login', async (req, res) => {
       // Log failed authentication attempt
       AuditLogger.logAuthAttempt(row.id, normEmail, ipAddress, userAgent, false, 'invalid_password');
       return res.status(401).json({ error: 'invalid_credentials' });
+    }
+    if (!row.email_verified) {
+      return res.status(403).json({ error: 'email_not_verified', message: 'Vui lòng xác thực email trước khi đăng nhập.' });
     }
 
     // Include is_vip, role, status in the token
@@ -337,7 +462,7 @@ router.get('/me', authMiddleware, async (req, res) => {
       return res.status(401).json({ error: 'invalid_token' });
     }
 
-    const r = await pool.query('SELECT id, email, is_vip, role, status, created_at FROM users WHERE id = $1 LIMIT 1', [userId]);
+    const r = await pool.query('SELECT id, email, display_name, role, status, COALESCE(email_verified, true) AS email_verified, created_at FROM users WHERE id = $1 LIMIT 1', [userId]);
     const user = r.rows[0];
 
     if (!user) {
@@ -348,19 +473,84 @@ router.get('/me', authMiddleware, async (req, res) => {
     const newToken = signToken({
       sub: user.id,
       email: user.email,
-      is_vip: !!user.is_vip,
       role: user.role,
       status: user.status
     });
 
     res.json({
-      user: { id: user.id, email: user.email, is_vip: !!user.is_vip, role: user.role, status: user.status, created_at: user.created_at },
+      user: { id: user.id, email: user.email, display_name: user.display_name, email_verified: user.email_verified, role: user.role, status: user.status, created_at: user.created_at },
       token: newToken // Return fresh token
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'db_error' });
   }
+});
+
+router.patch('/me', authMiddleware, async (req, res) => {
+  const displayName = String(req.body?.display_name || '').trim();
+  if (displayName.length > 80) return res.status(400).json({ error: 'display_name_too_long' });
+  const result = await pool.query(
+    `UPDATE users SET display_name=$1 WHERE id=$2
+     RETURNING id,email,display_name,role,status,COALESCE(email_verified,true) AS email_verified,created_at`,
+    [displayName || null, req.user.sub]
+  );
+  if (!result.rowCount) return res.status(404).json({ error: 'user_not_found' });
+  res.json({ user: result.rows[0] });
+});
+
+router.post('/change-password/request-otp', authMiddleware, async (req, res) => {
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password) return res.status(400).json({ error: 'passwords_required' });
+  if (String(new_password).length < 8) return res.status(400).json({ error: 'password_too_short' });
+  const result = await pool.query('SELECT email,password FROM users WHERE id=$1', [req.user.sub]);
+  if (!result.rowCount || !(await bcrypt.compare(current_password, result.rows[0].password))) {
+    return res.status(400).json({ error: 'current_password_incorrect' });
+  }
+
+  const otp = createOtp();
+  await pool.query(
+    `UPDATE users SET password_change_otp_hash=$1,
+      password_change_otp_expires_at=NOW() + INTERVAL '10 minutes' WHERE id=$2`,
+    [hashToken(otp), req.user.sub]
+  );
+  const mail = await sendPasswordChangeOtpEmail(result.rows[0].email, otp);
+  res.json({
+    otp_required: true,
+    message: 'Mã OTP xác nhận đã được gửi đến email của bạn.',
+    ...(process.env.NODE_ENV !== 'production' && !mail.delivered
+      ? { development_otp: mail.developmentOtp }
+      : {}),
+  });
+});
+
+router.post('/change-password', authMiddleware, async (req, res) => {
+  const { current_password, new_password, otp } = req.body || {};
+  if (!current_password || !new_password || !otp) return res.status(400).json({ error: 'passwords_and_otp_required' });
+  if (String(new_password).length < 8) return res.status(400).json({ error: 'password_too_short' });
+  const result = await pool.query(
+    `SELECT email,password FROM users WHERE id=$1 AND password_change_otp_hash=$2
+      AND password_change_otp_expires_at > NOW()`,
+    [req.user.sub, hashToken(String(otp).trim())]
+  );
+  if (!result.rowCount) return res.status(400).json({ error: 'password_change_otp_invalid_or_expired' });
+  if (!(await bcrypt.compare(current_password, result.rows[0].password))) {
+    return res.status(400).json({ error: 'current_password_incorrect' });
+  }
+  const passwordHash = await bcrypt.hash(new_password, 12);
+  await pool.query(
+    `UPDATE users SET password=$1, password_change_otp_hash=NULL,
+      password_change_otp_expires_at=NULL WHERE id=$2`,
+    [passwordHash, req.user.sub]
+  );
+  await RefreshToken.revokeAllUserTokens(req.user.sub, 'password_changed');
+  try {
+    await sendPasswordChangedEmail(result.rows[0].email);
+  } catch (emailError) {
+    console.error('[EMAIL] Failed to send password changed notification:', emailError.message);
+  }
+  res.clearCookie('refresh_token', { path: '/' });
+  res.json({ changed: true, message: 'Mật khẩu đã được đổi. Vui lòng đăng nhập lại.' });
 });
 
 const sseService = require('../services/sseService');

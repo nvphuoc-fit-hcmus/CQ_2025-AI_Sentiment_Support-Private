@@ -13,7 +13,7 @@ const TIMEFRAMES = [
     { label: '1M', value: '1M', api: '1M' },
 ];
 
-export default function TradingDashboard() {
+export default function TradingDashboard({ drawingTool = 'crosshair' }) {
     const { currentSymbol } = useStore();
 
     // State cho 4 biểu đồ - mỗi biểu đồ có timeframe riêng
@@ -74,6 +74,7 @@ export default function TradingDashboard() {
                             chartId={chart.id}
                             syncTime={syncTime}
                             onCrosshairSync={handleCrosshairSync}
+                            drawingTool={drawingTool}
                         />
                     </div>
                 ))}

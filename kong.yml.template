@@ -148,7 +148,7 @@ plugins:
   - name: cors
     config:
       origins: ["http://localhost:5173"]
-      methods: ["GET","POST","PUT","DELETE","OPTIONS"]
+      methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"]
       headers: ["Accept", "Accept-Version", "Content-Length", "Content-MD5", "Content-Type", "Date", "Authorization"]
       exposed_headers: ["X-Auth-Token"]
       credentials: true

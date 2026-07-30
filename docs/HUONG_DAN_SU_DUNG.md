@@ -1,4 +1,4 @@
-# 📘 Hướng Dẫn Sử Dụng — TradeAI (SAFE-Alert Platform)
+# 📘 Hướng Dẫn Sử Dụng — Aegis (SAFE-Alert Platform)
 
 > **Ứng dụng phân tích dữ liệu đa nguồn để khám phá xu hướng thị trường tài chính**
 >

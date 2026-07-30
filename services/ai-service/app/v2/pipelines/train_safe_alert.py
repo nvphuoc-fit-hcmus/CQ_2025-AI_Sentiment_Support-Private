@@ -319,6 +319,7 @@ _LAMBDA_VOL            = 0.0
 # the new default 16 doubles the candidate pool while staying inside the
 # T4/P100 memory envelope (B=8, K=16, 768-d FP32 ≈ 4.5 MB / batch).
 _ARTICLES_PER_CANDLE   = 16
+_LOOKBACK_HOURS        = 24
 
 # Sprint 1.5 — class weights mode. The previous code path always called
 # ``compute_class_weight('balanced', ...)`` and then applied a sqrt soften +
@@ -434,7 +435,7 @@ def _apply_config_overrides(cfg: dict) -> None:
     global _FOCAL_GAMMA, _LABEL_SMOOTHING_EPS, _INGEST_DELAY_MIN
     global _COVERAGE_TARGET, _ETA_LSEL, _MU_LRISK
     global _FAITH_MARGIN_MAP, _TOP_K_MAP
-    global _ARTICLES_PER_CANDLE
+    global _ARTICLES_PER_CANDLE, _LOOKBACK_HOURS
     global _CLASS_WEIGHTS_MODE
     curric = (cfg or {}).get("curriculum", {}) or {}
     _STAGE1_END_FRAC = float(curric.get("stage1_end_frac", _STAGE1_END_FRAC))
@@ -558,6 +559,11 @@ def _apply_config_overrides(cfg: dict) -> None:
     if _ARTICLES_PER_CANDLE < 1 or _ARTICLES_PER_CANDLE > 64:
         raise ValueError(
             f"articles_per_candle must be in [1, 64], got {_ARTICLES_PER_CANDLE}"
+        )
+    _LOOKBACK_HOURS = int((cfg or {}).get("lookback_hours", _LOOKBACK_HOURS))
+    if _LOOKBACK_HOURS < 1 or _LOOKBACK_HOURS > 720:
+        raise ValueError(
+            f"lookback_hours must be in [1, 720], got {_LOOKBACK_HOURS}"
         )
     # Sprint 1.5 — class weights mode (was hard-coded sqrt in _fit_train_stats).
     _CLASS_WEIGHTS_MODE = str((cfg or {}).get("class_weights_mode", _CLASS_WEIGHTS_MODE)).lower()
@@ -4017,6 +4023,7 @@ def main():
     parser.add_argument("--artifact_dir",    type=Path,  default=ARTIFACT_DIR)
     parser.add_argument("--epochs",          type=int,   default=cfg.get("epochs", 60))
     parser.add_argument("--batch_size",      type=int,   default=cfg.get("batch_size", 8))
+    parser.add_argument("--lookback_hours",  type=int,   default=cfg.get("lookback_hours", _LOOKBACK_HOURS))
     parser.add_argument("--lr",              type=float, default=cfg.get("lr", 3e-4))
     parser.add_argument("--weight_decay",    type=float, default=cfg.get("weight_decay", 1e-4))
     parser.add_argument("--grad_clip",       type=float, default=cfg.get("grad_clip", 1.0))
@@ -4442,6 +4449,7 @@ def main():
         article_to_candle={},
         symbol=args.symbol,
         horizon=args.horizon,
+        lookback_hours=args.lookback_hours,
         articles_per_candle=_ARTICLES_PER_CANDLE,  # Sprint 1 FIX 2 — was silently
                                                    # defaulting to 8, now YAML-wired
         precomputed_features=precomputed_features,

@@ -1,14 +1,31 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createChart } from 'lightweight-charts';
 import { TrendingUp, TrendingDown, DollarSign, Activity, Percent, Clock } from 'lucide-react';
 import './Backtest.css';
 
 export default function BacktestResults({ results }) {
     const chartContainerRef = useRef(null);
+    const tooltipHideTimerRef = useRef(null);
+    const tooltipHeldRef = useRef(false);
+    const [eventTooltip, setEventTooltip] = useState(null);
+
+    const cancelTooltipHide = () => {
+        if (tooltipHideTimerRef.current) {
+            clearTimeout(tooltipHideTimerRef.current);
+            tooltipHideTimerRef.current = null;
+        }
+    };
+
+    const hideTooltipSoon = () => {
+        cancelTooltipHide();
+        tooltipHideTimerRef.current = setTimeout(() => {
+            if (!tooltipHeldRef.current) setEventTooltip(null);
+        }, 260);
+    };
 
     // Formatters
-    const formatUSD = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
-    const formatPct = (val) => `${val.toFixed(2)}%`;
+    const formatUSD = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(val) || 0);
+    const formatPct = (val) => `${(Number(val) || 0).toFixed(2)}%`;
 
     // Draw Chart
     useEffect(() => {
@@ -51,19 +68,134 @@ export default function BacktestResults({ results }) {
         });
 
         // Data mapping
-        const data = results.equity_curve
-            .filter(pt => pt.time && pt.value)
+        const mappedData = results.equity_curve
+            .filter(pt => pt.time && Number.isFinite(Number(pt.value)))
             .map(pt => ({
-                time: new Date(pt.time).getTime() / 1000,
-                value: pt.value
-            }));
+                time: Math.floor(new Date(pt.time).getTime() / 1000),
+                value: Number(pt.value)
+            }))
+            .filter(pt => Number.isFinite(pt.time) && Number.isFinite(pt.value));
 
-        data.sort((a, b) => a.time - b.time);
+        // lightweight-charts requires strictly increasing, unique timestamps.
+        // Keep the latest equity value when a forced close updates the same bar.
+        const data = Array.from(
+            new Map(mappedData.map(point => [point.time, point])).values()
+        ).sort((a, b) => a.time - b.time);
 
         if (data.length > 0) {
-            areaSeries.setData(data);
-            chart.timeScale().fitContent();
+            try {
+                areaSeries.setData(data);
+                chart.timeScale().fitContent();
+            } catch (error) {
+                console.error('[BacktestResults] Invalid equity curve:', error);
+            }
         }
+
+        const tradesWithNews = (results.trades || []).filter(trade =>
+            Array.isArray(trade.news_context) && trade.news_context.length > 0
+        );
+        const maxVisibleMarkers = 28;
+        const markerStep = Math.max(1, Math.ceil(tradesWithNews.length / maxVisibleMarkers));
+        const selectedEvents = tradesWithNews
+            .filter((_, index) => index % markerStep === 0)
+            .slice(0, maxVisibleMarkers);
+        const eventMap = new Map();
+        const eventByMarkerId = new Map();
+        const equityByTime = new Map(data.map(point => [point.time, point.value]));
+        const dataTimes = data.map(point => point.time);
+        const snapToEquityTime = rawTime => {
+            if (!dataTimes.length) return rawTime;
+            let nearestTime = dataTimes[0];
+            let nearestDistance = Math.abs(nearestTime - rawTime);
+            for (let index = 1; index < dataTimes.length; index += 1) {
+                const distance = Math.abs(dataTimes[index] - rawTime);
+                if (distance < nearestDistance) {
+                    nearestTime = dataTimes[index];
+                    nearestDistance = distance;
+                }
+            }
+            return nearestTime;
+        };
+        const eventMarkers = selectedEvents.map((trade, markerIndex) => {
+            const rawTime = Math.floor(new Date(trade.entry_time).getTime() / 1000);
+            const time = snapToEquityTime(rawTime);
+            const averageSentiment = trade.news_context.reduce(
+                (sum, news) => sum + Number(news.sentiment_score || 0), 0
+            ) / trade.news_context.length;
+            const markerId = `backtest-news-${markerIndex}-${time}`;
+            const event = { trade, averageSentiment, equityValue: equityByTime.get(time) };
+            eventMap.set(time, event);
+            eventByMarkerId.set(markerId, event);
+            return {
+                id: markerId,
+                time,
+                position: trade.side === 'long' ? 'belowBar' : 'aboveBar',
+                color: averageSentiment > 0.1 ? '#18c99a' : averageSentiment < -0.1 ? '#f05e76' : '#f3b84b',
+                shape: 'circle',
+                text: `N${trade.news_context.length}`,
+                size: 1.7,
+            };
+        }).sort((a, b) => a.time - b.time);
+
+        if (eventMarkers.length > 0) {
+            areaSeries.setMarkers(eventMarkers);
+        }
+
+        const timeTolerance = data.length > 1
+            ? Math.max(60, Math.abs(data[1].time - data[0].time) / 2)
+            : 3600;
+        chart.subscribeCrosshairMove(param => {
+            if (!param.point || eventMap.size === 0) {
+                hideTooltipSoon();
+                return;
+            }
+
+            const directlyHoveredEvent = param.hoveredObjectId
+                ? eventByMarkerId.get(String(param.hoveredObjectId))
+                : null;
+            if (directlyHoveredEvent) {
+                cancelTooltipHide();
+                setEventTooltip({
+                    ...directlyHoveredEvent,
+                    x: Math.max(12, Math.min(param.point.x + 14, chartContainerRef.current.clientWidth - 330)),
+                    y: Math.max(10, Math.min(param.point.y - 55, 150)),
+                });
+                return;
+            }
+
+            if (!param.time) {
+                hideTooltipSoon();
+                return;
+            }
+            const hoveredTime = typeof param.time === 'number' ? param.time : Number(param.time);
+            let nearest = null;
+            let nearestDistance = Infinity;
+            let nearestMarkerX = null;
+            eventMap.forEach((event, eventTime) => {
+                const distance = Math.abs(eventTime - hoveredTime);
+                if (distance < nearestDistance) {
+                    nearest = event;
+                    nearestDistance = distance;
+                    nearestMarkerX = chart.timeScale().timeToCoordinate(eventTime);
+                }
+            });
+            const horizontalDistance = nearestMarkerX == null
+                ? Infinity
+                : Math.abs(param.point.x - nearestMarkerX);
+            // Marker hover is handled by hoveredObjectId above. This wider
+            // horizontal fallback also works on lightweight-charts builds
+            // that do not expose marker IDs in crosshair events.
+            if (!nearest || nearestDistance > timeTolerance || horizontalDistance > 22) {
+                hideTooltipSoon();
+                return;
+            }
+            cancelTooltipHide();
+            setEventTooltip({
+                ...nearest,
+                x: Math.max(12, Math.min(param.point.x + 14, chartContainerRef.current.clientWidth - 330)),
+                y: Math.max(10, Math.min(param.point.y - 55, 150)),
+            });
+        });
 
         const handleResize = () => {
             chart.applyOptions({ width: chartContainerRef.current.clientWidth });
@@ -71,6 +203,7 @@ export default function BacktestResults({ results }) {
 
         window.addEventListener('resize', handleResize);
         return () => {
+            cancelTooltipHide();
             window.removeEventListener('resize', handleResize);
             chart.remove();
         };
@@ -101,7 +234,7 @@ export default function BacktestResults({ results }) {
                 <StatCard
                     label="Win Rate"
                     value={formatPct(results.win_rate)}
-                    sub={`${results.winning_trades}W / ${results.losing_trades}L`}
+                    sub={`${results.winning_trades ?? 0}W / ${results.losing_trades ?? 0}L`}
                     isPositive={results.win_rate > 50}
                     icon={<Percent size={16} />}
                 />
@@ -115,7 +248,7 @@ export default function BacktestResults({ results }) {
                 />
                 <StatCard
                     label="Sharpe Ratio"
-                    value={results.sharpe_ratio.toFixed(2)}
+                    value={(Number(results.sharpe_ratio) || 0).toFixed(2)}
                     sub="Risk Adjusted"
                     isPositive={results.sharpe_ratio > 1}
                     icon={<Activity size={16} />}
@@ -132,6 +265,26 @@ export default function BacktestResults({ results }) {
                 </div>
                 <div style={{ height: 320, position: 'relative' }}>
                     <div ref={chartContainerRef} style={{ width: '100%', height: '100%', position: 'absolute' }} />
+                    {eventTooltip && (
+                        <BacktestEventTooltip
+                            event={eventTooltip}
+                            formatUSD={formatUSD}
+                            onMouseEnter={() => {
+                                tooltipHeldRef.current = true;
+                                cancelTooltipHide();
+                            }}
+                            onMouseLeave={() => {
+                                tooltipHeldRef.current = false;
+                                hideTooltipSoon();
+                            }}
+                        />
+                    )}
+                </div>
+                <div className="equity-chart-legend">
+                    <span><i className="positive" /> Tin tích cực</span>
+                    <span><i className="neutral" /> Tin trung lập</span>
+                    <span><i className="negative" /> Tin tiêu cực</span>
+                    <small>Chấm N là tin mô hình đã thấy khi mở lệnh</small>
                 </div>
             </div>
 
@@ -185,6 +338,44 @@ export default function BacktestResults({ results }) {
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function BacktestEventTooltip({ event, formatUSD, onMouseEnter, onMouseLeave }) {
+    const { trade, averageSentiment, x, y } = event;
+    const profit = Number(trade.profit || 0);
+    const sentimentLabel = averageSentiment > 0.1 ? 'Tích cực' : averageSentiment < -0.1 ? 'Tiêu cực' : 'Trung lập';
+    return (
+        <div
+            className="backtest-event-tooltip"
+            style={{ left: x, top: y }}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+        >
+            <div className="backtest-event-head">
+                <span className={averageSentiment > 0.1 ? 'positive' : averageSentiment < -0.1 ? 'negative' : 'neutral'}>
+                    {sentimentLabel} · {(averageSentiment * 100).toFixed(1)}%
+                </span>
+                <b>{String(trade.side || '').toUpperCase()}</b>
+            </div>
+            <div className="backtest-event-trade">
+                <span>Vào <strong>${Number(trade.entry_price || 0).toFixed(2)}</strong></span>
+                <span>Ra <strong>${Number(trade.exit_price || 0).toFixed(2)}</strong></span>
+                <span className={profit >= 0 ? 'profit' : 'loss'}>
+                    {profit >= 0 ? '+' : ''}{formatUSD(profit)} ({Number(trade.return_percent || 0).toFixed(2)}%)
+                </span>
+            </div>
+            <div className="backtest-event-reason">Kết thúc: {trade.reason || 'Theo tín hiệu'}</div>
+            <div className="backtest-event-news">
+                {(trade.news_context || []).slice(0, 3).map((news, index) => (
+                    <div key={`${news.title}-${index}`}>
+                        <i />
+                        <span>{news.title || 'Tin thị trường'}</span>
+                        <b>{Number(news.sentiment_score || 0) > 0 ? '+' : ''}{(Number(news.sentiment_score || 0) * 100).toFixed(0)}%</b>
+                    </div>
+                ))}
             </div>
         </div>
     );

@@ -16,7 +16,7 @@ export default function AdminNavbar() {
             <div className="admin-nav-left">
                 <div className="admin-brand">
                     <Shield className="admin-brand-icon" size={28} />
-                    <span>TradeAI Admin</span>
+                    <span>Aegis Admin</span>
                 </div>
             </div>
 

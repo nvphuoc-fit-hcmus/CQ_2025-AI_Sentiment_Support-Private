@@ -164,7 +164,12 @@ async def process_article_task(item: dict):
             'symbol': data.get('symbols', ['BTCUSDT'])[0] if data.get('symbols') else None,
             'symbols': data.get('symbols', ['BTCUSDT']),  # All related symbols
             'category': data.get('category', 'General'),
-            'sentiment': data.get('sentiment'),
+            # smart_extract returns sentiment_label/sentiment_score. Preserve
+            # both explicit fields; the old `data.get("sentiment")` was always
+            # null and made every newly crawled article look neutral.
+            'sentiment': data.get('sentiment_score', 0.0),
+            'sentiment_label': data.get('sentiment_label', 'Neutral'),
+            'sentiment_score': data.get('sentiment_score', 0.0),
             'relevance_score': data.get('relevance_score', 0.5)
         }
         
@@ -278,7 +283,9 @@ def health():
 def get_latest_news(limit: int = 100):
     """Fallback endpoint: return latest crawled articles from MongoDB."""
     try:
-        lim = max(1, min(int(limit or 100), 500))
+        # The news centre can request the complete crawler archive. Keep a
+        # generous safety ceiling rather than truncating the source at 500.
+        lim = max(1, min(int(limit or 100), 10000))
         db = get_db()
         docs = list(
             db.news_articles.find(
@@ -289,6 +296,8 @@ def get_latest_news(limit: int = 100):
                     "source": 1,
                     "title": 1,
                     "sentiment": 1,
+                    "sentiment_label": 1,
+                    "sentiment_score": 1,
                     "published_at": 1,
                     "created_at": 1,
                 },
@@ -299,7 +308,7 @@ def get_latest_news(limit: int = 100):
 
         rows = []
         for doc in docs:
-            sentiment = doc.get("sentiment")
+            sentiment = doc.get("sentiment_score", doc.get("sentiment"))
             sentiment_score = 0.0
             if isinstance(sentiment, (int, float)):
                 sentiment_score = float(sentiment)
