@@ -75,22 +75,63 @@ async function initDB() {
 // --- EMAILER ---
 const transporter = nodemailer.createTransport(SMTP_CONFIG);
 
-async function sendEmail(to, subject, htmlContent) {
-    if (!process.env.SMTP_PASSWORD) {
-        console.log('[EMAIL MOCK] Would send to:', to, 'Subject:', subject);
-        return;
+async function sendWithBrevo(to, subject, htmlContent) {
+    const apiKey = String(process.env.BREVO_API_KEY || '').trim();
+    if (!apiKey) return false;
+
+    const senderEmail = String(
+        process.env.BREVO_SENDER_EMAIL || process.env.SMTP_EMAIL || ''
+    ).trim();
+    if (!senderEmail) {
+        throw new Error('BREVO_SENDER_EMAIL is not configured');
     }
 
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+            accept: 'application/json',
+            'content-type': 'application/json',
+            'api-key': apiKey
+        },
+        body: JSON.stringify({
+            sender: {
+                name: process.env.BREVO_SENDER_NAME || 'Aegis',
+                email: senderEmail
+            },
+            to: [{ email: to }],
+            subject,
+            htmlContent
+        }),
+        signal: AbortSignal.timeout(Number(process.env.BREVO_TIMEOUT_MS || 12000))
+    });
+
+    if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`Brevo API ${response.status}: ${detail.slice(0, 300)}`);
+    }
+
+    console.log(`[EMAIL] Sent via Brevo to ${to}: ${subject}`);
+    return true;
+}
+
+async function sendEmail(to, subject, htmlContent) {
     try {
+        if (await sendWithBrevo(to, subject, htmlContent)) return;
+
+        if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASSWORD) {
+            throw new Error('Neither Brevo nor SMTP email delivery is configured');
+        }
+
         await transporter.sendMail({
             from: `"Aegis" <${SMTP_CONFIG.auth.user}>`,
             to,
             subject,
             html: htmlContent
         });
-        console.log(`[EMAIL] Sent to ${to}: ${subject}`);
+        console.log(`[EMAIL] Sent via SMTP to ${to}: ${subject}`);
     } catch (e) {
         console.error(`[EMAIL ERROR] Failed to send to ${to}:`, e.message);
+        throw e;
     }
 }
 

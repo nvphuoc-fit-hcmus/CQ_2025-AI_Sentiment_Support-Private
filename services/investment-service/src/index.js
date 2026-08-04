@@ -344,68 +344,13 @@ async function analyzeInvestmentLogic(symbol, usdt_amount, target_sell_time) {
             console.warn(`[AI] Using local fallback prediction for ${symbol}`);
         }
     }
-    let aiAnalysis = null;
-    try {
-        if (!aiPred.is_fallback) {
-            const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            const analysisPayload = {
-                requestId,
-                symbol,
-                amount: parseFloat(usdt_amount),
-                buy_price: buyPrice,
-                target_sell_time,
-                current_time: new Date().toISOString(),
-                market_prediction: aiPred
-            };
-
-            // Send to Kafka
-            await producer.send({
-                topic: 'investment.analysis.request',
-                messages: [{ key: requestId, value: JSON.stringify(analysisPayload) }]
-            });
-
-            // Wait for reply with bounded timeout
-            aiAnalysis = await new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    if (pendingAnalysisRequests.has(requestId)) {
-                        pendingAnalysisRequests.delete(requestId);
-                        resolve(null);
-                        console.warn(`[KAFKA TIMEOUT] Analysis request ${requestId} timed out`);
-                    }
-                }, 8000); // 8 seconds timeout (ai-service uses cached V2 signal)
-
-                pendingAnalysisRequests.set(requestId, { resolve, reject, timeout });
-            });
-        }
-    } catch (err) {
-        console.error('[AI ANALYSIS ERROR]', err.message);
-    }
-
-    // Process Result
-    let predictedPrice, predictedProfitUsdt, aiAdvice, predictedPercent;
-
-    if (aiAnalysis && !aiAnalysis.error) {
-        // Got response from AI service
-        predictedPrice = aiAnalysis.predicted_price;
-        predictedProfitUsdt = aiAnalysis.predicted_profit_usdt;
-        aiAdvice = aiAnalysis.advice;
-        predictedPercent = aiAnalysis.predicted_profit_percent;
-
-        const displayDirection = aiAnalysis.details?.direction || aiPred.direction;
-        const displayConfidence = aiAnalysis.details?.confidence || aiPred.confidence;
-
-        // Enrich aiPred
-        aiPred.direction = displayDirection;
-        aiPred.confidence = displayConfidence;
-        aiPred.change_percent = predictedPercent;
-    } else {
-        // Fallback calculation
-        predictedPrice = buyPrice + (buyPrice * ((aiPred.change_percent || 0) / 100));
-        predictedProfitUsdt = (predictedPrice - buyPrice) * coinAmount;
-        predictedPercent = aiPred.change_percent || 0;
-
-        aiAdvice = generateAdvice(aiPred, buyPrice, usdt_amount);
-    }
+    // SAFE-Alert already returns the model output over HTTP. Convert that
+    // response directly into investment figures; no second Kafka round-trip is
+    // required (there is no AI consumer for investment.analysis.request).
+    const predictedPercent = Number(aiPred.change_percent || 0);
+    const predictedPrice = buyPrice * (1 + predictedPercent / 100);
+    const predictedProfitUsdt = (predictedPrice - buyPrice) * coinAmount;
+    const aiAdvice = generateAdvice(aiPred, buyPrice, usdt_amount);
 
     return {
         buyPrice,
@@ -684,7 +629,17 @@ async function closeInvestment(inv) {
     WHERE id = $3
   `, [sellPrice, actualProfitUsdt, inv.id]);
 
-    const accuracy = calculateAccuracy(actualProfitUsdt, inv.predicted_profit_usdt);
+    const predictedProfitPercent = Number(inv.usdt_amount) > 0
+        ? (Number(inv.predicted_profit_usdt || 0) / Number(inv.usdt_amount)) * 100
+        : 0;
+    const accuracy = calculateAccuracy({
+        actualPercent: actualProfitPercent,
+        predictedPercent: Number.isFinite(Number(inv.ai_prediction?.change_percent))
+            ? Number(inv.ai_prediction.change_percent)
+            : predictedProfitPercent,
+        predictedDirection: inv.ai_prediction?.direction,
+        hoursToTarget: Number(inv.ai_prediction?.consensus?.hours_to_target || 1),
+    });
 
     // Publish to Kafka
     await producer.send({
@@ -757,11 +712,36 @@ function generateAdvice(aiPred, buyPrice, usdtAmount) {
     return advice;
 }
 
-// Helper: Calculate accuracy
-function calculateAccuracy(actual, predicted) {
-    if (predicted === 0) return actual === 0 ? 100 : 0;
-    const error = Math.abs(actual - predicted) / Math.abs(predicted);
-    return Math.max(0, Math.min(100, (1 - error) * 100));
+// Per-investment forecast agreement: direction must match, then the score
+// measures how closely the predicted and actual move magnitudes agree.
+function calculateAccuracy({ actualPercent, predictedPercent, predictedDirection, hoursToTarget = 1 }) {
+    const actualValue = Number(actualPercent);
+    const predictedValue = Number(predictedPercent);
+    if (!Number.isFinite(actualValue) || !Number.isFinite(predictedValue)) return 0;
+
+    const epsilon = Number(hoursToTarget) <= 2 ? 0.15 : 0.30;
+    const normalizeDirection = (direction) => {
+        const value = String(direction || '').toUpperCase();
+        if (value === 'UP' || value === 'BUY') return 'UP';
+        if (value === 'DOWN' || value === 'SELL') return 'DOWN';
+        return 'NEUTRAL';
+    };
+    // A small realised move still has a direction. Keep epsilon for
+    // magnitude normalisation only, otherwise +0.02% would be treated as
+    // NEUTRAL against an UP forecast and receive an incorrectly low score.
+    const actualDirection = actualValue > 0
+        ? 'UP'
+        : (actualValue < 0 ? 'DOWN' : 'NEUTRAL');
+    const expectedDirection = normalizeDirection(predictedDirection);
+    const scale = Math.max(2 * epsilon, Math.abs(actualValue), Math.abs(predictedValue), Number.EPSILON);
+    const magnitudeSimilarity = Math.exp(-Math.abs(actualValue - predictedValue) / scale);
+
+    if (expectedDirection === actualDirection) {
+        return Number((50 + 50 * magnitudeSimilarity).toFixed(1));
+    }
+    const isOpposite = (expectedDirection === 'UP' && actualDirection === 'DOWN')
+        || (expectedDirection === 'DOWN' && actualDirection === 'UP');
+    return isOpposite ? 0 : Number((50 * magnitudeSimilarity).toFixed(1));
 }
 
 

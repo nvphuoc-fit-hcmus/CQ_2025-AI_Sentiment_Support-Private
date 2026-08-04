@@ -70,7 +70,7 @@ class StrategyParser {
             actualValue = context.currentPrice;
         } else if (type === 'news') {
             if (!context.news || context.news.length === 0) {
-                console.log('[STRATEGY] No news data available');
+                if (process.env.BACKTEST_DEBUG === 'true') console.log('[STRATEGY] No news data available');
                 return false;
             }
             // Aggregate news sentiment
@@ -78,7 +78,7 @@ class StrategyParser {
             actualValue = avgSentiment;
 
             // Debug logging
-            if (context.news.length > 0) {
+            if (process.env.BACKTEST_DEBUG === 'true' && context.news.length > 0) {
                 console.log(`[STRATEGY] News count: ${context.news.length}, Avg sentiment: ${avgSentiment.toFixed(4)}, Condition: ${operator} ${value}`);
             }
         } else {
@@ -93,7 +93,7 @@ class StrategyParser {
         const result = this.evaluateOperator(actualValue, operator, value);
 
         // Debug logging for news conditions
-        if (type === 'news') {
+        if (process.env.BACKTEST_DEBUG === 'true' && type === 'news') {
             console.log(`[STRATEGY] News condition result: ${actualValue.toFixed(4)} ${operator} ${value} = ${result}`);
         }
 

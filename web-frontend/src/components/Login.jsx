@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import useStore from '../store';
-import { Activity, ArrowRight, Eye, EyeOff, Shield, Zap, BarChart3 } from 'lucide-react';
+import AegisLogo from './AegisLogo';
+import { ArrowRight, Eye, EyeOff, Shield, Zap, BarChart3 } from 'lucide-react';
 
 const apiBase = (() => {
     const configured = import.meta.env.VITE_API_URL;
-    if (!configured) return 'http://localhost:8000';
+    if (!configured) return window.location.origin;
     try {
         return new URL(configured).origin;
     } catch {
@@ -141,6 +142,8 @@ export default function Login() {
                 setError('Mật khẩu mới chưa đáp ứng yêu cầu bảo mật.');
             } else if (message.includes('recovery_email_not_found')) {
                 setError('Email không tồn tại trong hệ thống, chưa xác thực hoặc tài khoản không hoạt động.');
+            } else if (message.includes('verification_email_unavailable')) {
+                setError('Chưa thể gửi mã OTP qua email. Dịch vụ gửi mail đang tạm thời gián đoạn, vui lòng thử lại sau.');
             } else if (message.includes('email_not_verified')) {
                 setVerificationEmail(email.trim().toLowerCase());
                 setMode('verify');
@@ -218,7 +221,7 @@ export default function Login() {
             <div className="login-container">
                 <div className="login-features">
                     <div className="login-brand">
-                        <Activity size={32} className="login-brand-icon" />
+                        <AegisLogo size={36} className="login-brand-icon" />
                         <span className="login-brand-text">Aegis</span>
                     </div>
                     <h1 className="login-headline">

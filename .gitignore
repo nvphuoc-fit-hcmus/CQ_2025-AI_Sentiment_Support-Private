@@ -108,3 +108,12 @@ web-frontend/dist/
 *.tmp
 Thumbs.db
 services/backtest-service/tmp/
+
+# Local datasets, trained artifacts and working exports
+tmp/
+services/ai-service/artifacts/
+services/ai-service*.zip
+services/backtest-service/data/
+
+# Local service secrets (the tracked legacy file must never be staged)
+services/auth-service/.env

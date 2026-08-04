@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import useStore from '../store';
 import { useTheme } from './ThemeProvider';
+import AegisLogo from './AegisLogo';
 import {
-    Activity, LogOut, CheckCircle, BarChart3, TrendingUp,
+    LogOut, CheckCircle, BarChart3, TrendingUp,
     Sun, Moon, History, Search, X, Settings, ChevronDown, Bell,
     ShieldAlert, CircleDollarSign, KeyRound, Trash2, Newspaper
 } from 'lucide-react';
@@ -165,7 +166,7 @@ export default function Navbar({ currentPage, onNavigate }) {
             {/* Left: Brand + Tabs */}
             <div className="nav-left">
                 <div className="brand" onClick={() => onNavigate('trading')}>
-                    <Activity className="brand-icon" size={22} />
+                    <AegisLogo className="brand-icon" size={24} />
                     <span>Aegis</span>
                 </div>
 
@@ -207,6 +208,8 @@ export default function Navbar({ currentPage, onNavigate }) {
             {currentPage === 'trading' && <div className="nav-search-area" ref={searchRef}>
                 <button
                     className="nav-search-trigger"
+                    aria-label={`Chọn đồng tiền, hiện tại là ${currentCoin?.name || currentSymbol}`}
+                    aria-expanded={searchOpen}
                     onClick={() => {
                         setSearchOpen(true);
                         setTimeout(() => inputRef.current?.focus(), 100);
@@ -218,7 +221,7 @@ export default function Navbar({ currentPage, onNavigate }) {
                         <small>/ USDT</small>
                     </span>
                     <kbd className="nav-search-kbd">Ctrl+K</kbd>
-                    <ChevronDown size={13} className={`nav-search-chevron ${searchOpen ? 'open' : ''}`} />
+                        <ChevronDown size={13} className={`nav-search-chevron ${searchOpen ? 'open' : ''}`} aria-hidden="true" />
                 </button>
 
                 {searchOpen && (

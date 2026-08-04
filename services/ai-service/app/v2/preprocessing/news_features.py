@@ -265,6 +265,7 @@ COIN_NAME_MAP: dict[str, str] = {
     "DOGEUSDT": "Dogecoin",
     "AVAXUSDT": "Avalanche",
     "MATICUSDT": "Polygon",
+    "POLUSDT": "Polygon",
 }
 
 

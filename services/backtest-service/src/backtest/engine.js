@@ -21,6 +21,7 @@ class BacktestEngine {
         this.activePosition = null; // Currently open position
         this.equityInterim = []; // Equity curve over time
         this.logs = [];
+        this.actionableSignals = 0;
     }
 
     /**
@@ -76,6 +77,9 @@ class BacktestEngine {
 
             // 2. Evaluate Strategy
             const action = StrategyParser.evaluateStrategy(this.strategy, context);
+            if (action === 'BUY' || action === 'SELL') {
+                this.actionableSignals += 1;
+            }
 
             // 3. Execute Trades
             this.executeLogic(action, candle, currentTime, context);
@@ -93,10 +97,33 @@ class BacktestEngine {
 
         const endTime = Date.now();
 
+        const performance = this.calculatePerformance();
+        const usesAi = (this.strategy.conditions || []).some(condition => condition.type === 'ai');
+        const usesNews = (this.strategy.conditions || []).some(condition => condition.type === 'news');
+        let noTradeReason = null;
+        if (performance.total_trades === 0) {
+            if (usesAi && this.predictions.length === 0) {
+                noTradeReason = 'Không có dự báo AI lịch sử trong khoảng thời gian đã chọn.';
+            } else if (usesNews && this.news.length === 0) {
+                noTradeReason = 'Không có dữ liệu tin tức trong khoảng thời gian đã chọn.';
+            } else if (this.actionableSignals === 0) {
+                noTradeReason = 'Không có thời điểm nào thỏa đồng thời toàn bộ điều kiện của chiến lược.';
+            } else {
+                noTradeReason = 'Có tín hiệu nhưng không hình thành được giao dịch hoàn chỉnh.';
+            }
+        }
+
         return {
-            ...this.calculatePerformance(),
+            ...performance,
             execution_time_ms: endTime - startTime,
-            data_points_analyzed: this.candles.length
+            data_points_analyzed: this.candles.length,
+            diagnostics: {
+                candles: this.candles.length,
+                predictions: this.predictions.length,
+                news: this.news.length,
+                actionable_signals: this.actionableSignals,
+                no_trade_reason: noTradeReason
+            }
         };
     }
 
@@ -263,22 +290,41 @@ class BacktestEngine {
     }
 
     getLatestPrediction(time) {
-        // Find last prediction where pred.time <= time
-        // Backward search since arrays are sorted asc
-        for (let i = this.predictions.length - 1; i >= 0; i--) {
-            if (new Date(this.predictions[i].time) <= time) {
-                return this.predictions[i];
-            }
+        const target = time.getTime();
+        let low = 0;
+        let high = this.predictions.length;
+        while (low < high) {
+            const mid = (low + high) >>> 1;
+            if (new Date(this.predictions[mid].time).getTime() <= target) low = mid + 1;
+            else high = mid;
         }
-        return null;
+        return low > 0 ? this.predictions[low - 1] : null;
     }
 
     getRecentNews(time, hoursLookback) {
-        const lookbackTime = new Date(time.getTime() - (hoursLookback * 60 * 60 * 1000));
-        return this.news.filter(n => {
-            const t = new Date(n.time);
-            return t <= time && t >= lookbackTime;
-        });
+        const end = time.getTime();
+        const start = end - (hoursLookback * 60 * 60 * 1000);
+        const lowerBound = (target) => {
+            let low = 0;
+            let high = this.news.length;
+            while (low < high) {
+                const mid = (low + high) >>> 1;
+                if (new Date(this.news[mid].time).getTime() < target) low = mid + 1;
+                else high = mid;
+            }
+            return low;
+        };
+        const upperBound = (target) => {
+            let low = 0;
+            let high = this.news.length;
+            while (low < high) {
+                const mid = (low + high) >>> 1;
+                if (new Date(this.news[mid].time).getTime() <= target) low = mid + 1;
+                else high = mid;
+            }
+            return low;
+        };
+        return this.news.slice(lowerBound(start), upperBound(end));
     }
 
     calculatePerformance() {

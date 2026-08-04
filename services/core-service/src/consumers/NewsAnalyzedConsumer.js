@@ -80,9 +80,9 @@ const scheduleFlush = () => {
 
 const normalizeSentiment = (payload) => {
   // Accept multiple shapes. Prefer explicit sentiment_score and sentiment_label.
-  let label = payload.sentiment_label || payload.label || null;
-  let score = payload.sentiment_score || payload.score || null;
-  const raw = payload.raw || payload.raw_score || payload.sentiment || payload;
+  let label = payload.sentiment_label ?? payload.label ?? null;
+  let score = payload.sentiment_score ?? payload.score ?? null;
+  const raw = payload.raw ?? payload.raw_score ?? payload.sentiment ?? payload;
 
   // If score is an object with probabilities, compute signed score
   if (score && typeof score === 'object') {
@@ -98,6 +98,11 @@ const normalizeSentiment = (payload) => {
     const pos = Number(raw.pos || raw.positive || 0);
     const neg = Number(raw.neg || raw.negative || 0);
     if (pos || neg) return { signed: pos - neg, raw };
+  }
+
+  // Some producers use the raw field itself as the signed sentiment value.
+  if (score == null && raw != null && typeof raw !== 'object' && !isNaN(Number(raw))) {
+    return { signed: Number(raw), raw };
   }
 
   // numeric score present

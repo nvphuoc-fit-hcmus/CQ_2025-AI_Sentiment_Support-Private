@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart } from 'lightweight-charts';
-import { TrendingUp, TrendingDown, DollarSign, Activity, Percent, Clock } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Activity, Percent, Clock, AlertCircle } from 'lucide-react';
 import './Backtest.css';
 
 export default function BacktestResults({ results }) {
@@ -91,14 +91,23 @@ export default function BacktestResults({ results }) {
             }
         }
 
-        const tradesWithNews = (results.trades || []).filter(trade =>
-            Array.isArray(trade.news_context) && trade.news_context.length > 0
-        );
-        const maxVisibleMarkers = 28;
-        const markerStep = Math.max(1, Math.ceil(tradesWithNews.length / maxVisibleMarkers));
-        const selectedEvents = tradesWithNews
-            .filter((_, index) => index % markerStep === 0)
-            .slice(0, maxVisibleMarkers);
+        const sourceBuckets = Array.isArray(results.news_timeline) ? results.news_timeline : [];
+        const maxVisibleMarkers = 100;
+        const groupSize = Math.max(1, Math.ceil(sourceBuckets.length / maxVisibleMarkers));
+        const selectedEvents = [];
+        for (let index = 0; index < sourceBuckets.length; index += groupSize) {
+            const group = sourceBuckets.slice(index, index + groupSize);
+            const count = group.reduce((sum, bucket) => sum + Number(bucket.count || 0), 0);
+            const weightedSentiment = group.reduce(
+                (sum, bucket) => sum + Number(bucket.average_sentiment || 0) * Number(bucket.count || 0), 0
+            );
+            selectedEvents.push({
+                time: group[Math.floor(group.length / 2)]?.time,
+                count,
+                average_sentiment: count ? weightedSentiment / count : 0,
+                articles: group.flatMap(bucket => bucket.articles || []).slice(0, 5),
+            });
+        }
         const eventMap = new Map();
         const eventByMarkerId = new Map();
         const equityByTime = new Map(data.map(point => [point.time, point.value]));
@@ -116,23 +125,21 @@ export default function BacktestResults({ results }) {
             }
             return nearestTime;
         };
-        const eventMarkers = selectedEvents.map((trade, markerIndex) => {
-            const rawTime = Math.floor(new Date(trade.entry_time).getTime() / 1000);
+        const eventMarkers = selectedEvents.map((newsBucket, markerIndex) => {
+            const rawTime = Math.floor(new Date(newsBucket.time).getTime() / 1000);
             const time = snapToEquityTime(rawTime);
-            const averageSentiment = trade.news_context.reduce(
-                (sum, news) => sum + Number(news.sentiment_score || 0), 0
-            ) / trade.news_context.length;
+            const averageSentiment = Number(newsBucket.average_sentiment || 0);
             const markerId = `backtest-news-${markerIndex}-${time}`;
-            const event = { trade, averageSentiment, equityValue: equityByTime.get(time) };
+            const event = { newsBucket, averageSentiment, equityValue: equityByTime.get(time) };
             eventMap.set(time, event);
             eventByMarkerId.set(markerId, event);
             return {
                 id: markerId,
                 time,
-                position: trade.side === 'long' ? 'belowBar' : 'aboveBar',
+                position: averageSentiment < -0.1 ? 'aboveBar' : 'belowBar',
                 color: averageSentiment > 0.1 ? '#18c99a' : averageSentiment < -0.1 ? '#f05e76' : '#f3b84b',
                 shape: 'circle',
-                text: `N${trade.news_context.length}`,
+                text: `N${newsBucket.count}`,
                 size: 1.7,
             };
         }).sort((a, b) => a.time - b.time);
@@ -222,6 +229,25 @@ export default function BacktestResults({ results }) {
                 </h2>
             </div>
 
+            {Number(results.total_trades || 0) === 0 && (
+                <div className="backtest-no-trades">
+                    <AlertCircle size={18} />
+                    <div>
+                        <strong>Không phát sinh giao dịch</strong>
+                        <p>
+                            {results.diagnostics?.no_trade_reason
+                                || 'Không có cây nến nào thỏa toàn bộ điều kiện vào lệnh trong khoảng thời gian này.'}
+                        </p>
+                        <small>
+                            {Number(results.diagnostics?.candles || results.data_points_analyzed || 0).toLocaleString('vi-VN')} nến
+                            {' · '}{Number(results.diagnostics?.predictions || 0).toLocaleString('vi-VN')} dự báo AI
+                            {' · '}{Number(results.news_count || results.diagnostics?.news || 0).toLocaleString('vi-VN')} tin tức
+                            {' · '}{Number(results.diagnostics?.actionable_signals || 0).toLocaleString('vi-VN')} tín hiệu vào lệnh
+                        </small>
+                    </div>
+                </div>
+            )}
+
             {/* Metrics Grid */}
             <div className="metrics-grid">
                 <StatCard
@@ -284,7 +310,7 @@ export default function BacktestResults({ results }) {
                     <span><i className="positive" /> Tin tích cực</span>
                     <span><i className="neutral" /> Tin trung lập</span>
                     <span><i className="negative" /> Tin tiêu cực</span>
-                    <small>Chấm N là tin mô hình đã thấy khi mở lệnh</small>
+                    <small>{Number(results.news_count || 0).toLocaleString('vi-VN')} tin đã dùng · N là số tin trong cụm thời gian</small>
                 </div>
             </div>
 
@@ -344,8 +370,7 @@ export default function BacktestResults({ results }) {
 }
 
 function BacktestEventTooltip({ event, formatUSD, onMouseEnter, onMouseLeave }) {
-    const { trade, averageSentiment, x, y } = event;
-    const profit = Number(trade.profit || 0);
+    const { newsBucket, averageSentiment, equityValue, x, y } = event;
     const sentimentLabel = averageSentiment > 0.1 ? 'Tích cực' : averageSentiment < -0.1 ? 'Tiêu cực' : 'Trung lập';
     return (
         <div
@@ -358,18 +383,14 @@ function BacktestEventTooltip({ event, formatUSD, onMouseEnter, onMouseLeave }) 
                 <span className={averageSentiment > 0.1 ? 'positive' : averageSentiment < -0.1 ? 'negative' : 'neutral'}>
                     {sentimentLabel} · {(averageSentiment * 100).toFixed(1)}%
                 </span>
-                <b>{String(trade.side || '').toUpperCase()}</b>
+                <b>{Number(newsBucket?.count || 0)} TIN</b>
             </div>
             <div className="backtest-event-trade">
-                <span>Vào <strong>${Number(trade.entry_price || 0).toFixed(2)}</strong></span>
-                <span>Ra <strong>${Number(trade.exit_price || 0).toFixed(2)}</strong></span>
-                <span className={profit >= 0 ? 'profit' : 'loss'}>
-                    {profit >= 0 ? '+' : ''}{formatUSD(profit)} ({Number(trade.return_percent || 0).toFixed(2)}%)
-                </span>
+                <span>Vốn tại thời điểm <strong>{formatUSD(equityValue)}</strong></span>
             </div>
-            <div className="backtest-event-reason">Kết thúc: {trade.reason || 'Theo tín hiệu'}</div>
+            <div className="backtest-event-reason">Tin được mô hình nhìn thấy trong cửa sổ chiến lược.</div>
             <div className="backtest-event-news">
-                {(trade.news_context || []).slice(0, 3).map((news, index) => (
+                {(newsBucket?.articles || []).slice(0, 5).map((news, index) => (
                     <div key={`${news.title}-${index}`}>
                         <i />
                         <span>{news.title || 'Tin thị trường'}</span>

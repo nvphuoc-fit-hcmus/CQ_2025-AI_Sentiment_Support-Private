@@ -4,6 +4,52 @@ import { ExternalLink, Clock, RefreshCw } from 'lucide-react';
 import { NewsListSkeleton } from './LoadingSpinner';
 import { useTheme } from './ThemeProvider';
 
+const parseRawNews = (raw) => {
+    if (raw == null) return null;
+    if (typeof raw === 'string') {
+        try {
+            return JSON.parse(raw);
+        } catch {
+            const numeric = Number(raw);
+            return Number.isFinite(numeric) ? numeric : null;
+        }
+    }
+    return raw;
+};
+
+const normalizeNewsItem = (item = {}) => {
+    const raw = parseRawNews(item.raw_score);
+    const rawObject = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const nestedSentiment = rawObject.sentiment_score
+        ?? rawObject.sentiment
+        ?? rawObject.score;
+    const rawNumeric = typeof raw === 'number' ? raw : Number(nestedSentiment);
+    const storedScore = Number(item.sentiment_score);
+    // Older rows were persisted as zero even though raw_score retained the
+    // analyzed value. Prefer that recoverable value only for those legacy rows.
+    const sentimentScore = Number.isFinite(rawNumeric) && storedScore === 0 && rawNumeric !== 0
+        ? rawNumeric
+        : (Number.isFinite(storedScore) ? storedScore : (Number.isFinite(rawNumeric) ? rawNumeric : 0));
+    const sentimentLabel = sentimentScore > 0.1
+        ? 'Tích cực'
+        : sentimentScore < -0.1
+            ? 'Tiêu cực'
+            : 'Trung lập';
+
+    return {
+        ...rawObject,
+        ...item,
+        title: item.title || rawObject.title || 'Không có tiêu đề',
+        source: item.source || rawObject.source || 'Không rõ nguồn',
+        url: item.url || rawObject.url || rawObject.link || null,
+        content: item.content || rawObject.content || rawObject.summary || rawObject.description || '',
+        published_at: item.published_at || item.time || rawObject.published_at || rawObject.time,
+        relevance_score: item.relevance_score ?? rawObject.relevance_score,
+        sentiment_score: Math.max(-1, Math.min(1, sentimentScore)),
+        sentiment_label: sentimentLabel,
+    };
+};
+
 export default function NewsList() {
     const { authFetch, currentSymbol } = useStore();
     const { isDark } = useTheme();
@@ -101,10 +147,10 @@ export default function NewsList() {
                     <div style={{ padding: '12px' }}><NewsListSkeleton count={LIMIT} /></div>
                 ) : news.length > 0 ? (
                     news.map((item, idx) => {
-                        const newsDetail = item.raw_score || item;
-                        const sentimentScore = newsDetail.sentiment_score || 0;
-                        const sentimentLabel = newsDetail.sentiment_label || 'Neutral';
-                        const relevanceScore = newsDetail.relevance_score || 0;
+                        const newsDetail = normalizeNewsItem(item);
+                        const sentimentScore = newsDetail.sentiment_score;
+                        const sentimentLabel = newsDetail.sentiment_label;
+                        const relevanceScore = Number(newsDetail.relevance_score || 0);
                         const content = newsDetail.content || '';
                         const snippet = content.substring(0, 150) + (content.length > 150 ? '...' : '');
 
@@ -140,7 +186,7 @@ export default function NewsList() {
                                     fontWeight: 'bold',
                                     marginBottom: '8px'
                                 }}>
-                                    {item.title}
+                                        {newsDetail.title}
                                 </div>
 
                                 {/* Content Snippet */}
@@ -189,7 +235,9 @@ export default function NewsList() {
                                         </span>
                                     )}
 
-                                    {item.symbol && <span className="symbol-tag">{item.symbol}</span>}
+                                    {(newsDetail.symbol || newsDetail.symbols?.[0]) && (
+                                        <span className="symbol-tag">{newsDetail.symbol || newsDetail.symbols[0]}</span>
+                                    )}
                                 </div>
                             </div>
                         );
@@ -323,8 +371,8 @@ export default function NewsList() {
                         {/* Modal Content */}
                         <div style={{ padding: '32px' }}>
                             {(() => {
-                                const newsDetail = selectedNews.raw_score || selectedNews;
-                                const sentimentScore = newsDetail.sentiment_score || 0;
+                                const newsDetail = normalizeNewsItem(selectedNews);
+                                const sentimentScore = newsDetail.sentiment_score;
 
                                 return (
                                     <>

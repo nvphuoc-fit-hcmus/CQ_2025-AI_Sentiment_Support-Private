@@ -10,7 +10,7 @@ const getGatewayUrl = () => {
       return u.origin;
     } catch (e) { }
   }
-  return 'http://localhost:8000';
+  return typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000';
 };
 
 const GATEWAY = getGatewayUrl();

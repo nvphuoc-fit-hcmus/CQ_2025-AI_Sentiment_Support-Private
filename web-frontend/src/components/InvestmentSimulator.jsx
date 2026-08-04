@@ -137,7 +137,7 @@ export default function InvestmentSimulator() {
         if (!user?.id || !token) return;
 
         // Use Gateway URL
-        const gateway = 'http://localhost:8000';
+        const gateway = import.meta.env.VITE_API_URL || window.location.origin;
         const url = `${gateway}/invest-api/v1/investments/events?user_id=${user.id}&token=${encodeURIComponent(token)}`;
 
         console.log('Connecting SSE:', url);
@@ -278,11 +278,37 @@ export default function InvestmentSimulator() {
 
     const calculatePredictionAccuracy = (investment) => {
         if (investment.status !== 'closed') return null;
-        const actual = Number(investment.actual_profit_usdt || 0);
-        const predicted = Number(investment.predicted_profit_usdt || 0);
-        if (predicted === 0) return actual === 0 ? 100 : 0;
-        const relativeError = Math.abs(actual - predicted) / Math.abs(predicted);
-        return Math.max(0, Math.min(100, (1 - relativeError) * 100));
+        const invested = Number(investment.usdt_amount || 0);
+        const actual = invested > 0
+            ? (Number(investment.actual_profit_usdt || 0) / invested) * 100
+            : 0;
+        const predicted = Number.isFinite(Number(investment.ai_prediction?.change_percent))
+            ? Number(investment.ai_prediction.change_percent)
+            : (invested > 0 ? (Number(investment.predicted_profit_usdt || 0) / invested) * 100 : 0);
+        if (!Number.isFinite(actual) || !Number.isFinite(predicted)) return 0;
+
+        const hoursToTarget = Number(investment.ai_prediction?.consensus?.hours_to_target || 1);
+        const epsilon = hoursToTarget <= 2 ? 0.15 : 0.30;
+        const normalizeDirection = (direction) => {
+            const value = String(direction || '').toUpperCase();
+            if (value === 'UP' || value === 'BUY') return 'UP';
+            if (value === 'DOWN' || value === 'SELL') return 'DOWN';
+            return 'NEUTRAL';
+        };
+        // Direction agreement is based on the observed sign. Epsilon is only
+        // used to scale the magnitude error; using it for direction wrongly
+        // classified small positive/negative moves as NEUTRAL.
+        const actualDirection = actual > 0 ? 'UP' : (actual < 0 ? 'DOWN' : 'NEUTRAL');
+        const predictedDirection = normalizeDirection(investment.ai_prediction?.direction);
+        const scale = Math.max(2 * epsilon, Math.abs(actual), Math.abs(predicted), Number.EPSILON);
+        const magnitudeSimilarity = Math.exp(-Math.abs(actual - predicted) / scale);
+
+        if (predictedDirection === actualDirection) {
+            return 50 + (50 * magnitudeSimilarity);
+        }
+        const isOpposite = (predictedDirection === 'UP' && actualDirection === 'DOWN')
+            || (predictedDirection === 'DOWN' && actualDirection === 'UP');
+        return isOpposite ? 0 : 50 * magnitudeSimilarity;
     };
 
     const getDirectionMeta = (direction) => {
@@ -736,13 +762,13 @@ export default function InvestmentSimulator() {
                                                                                 <div><small>Trạng thái</small><strong>{inv.status === 'closed' ? 'Đã hoàn tất' : 'Đang theo dõi'}</strong></div>
                                                                                 <div><small>Biến động thực tế</small><strong className={(actualChange || 0) >= 0 ? 'text-up' : 'text-down'}>{actualChange == null ? 'Chưa có' : `${actualChange >= 0 ? '+' : ''}${actualChange.toFixed(2)}%`}</strong></div>
                                                                                 <div><small>Lợi nhuận dự báo</small><strong>{renderProfitLabel(inv.predicted_profit_usdt)}</strong></div>
-                                                                                <div><small>Độ chính xác sau đối chiếu</small><strong className={predictionAccuracy == null ? '' : predictionAccuracy >= 60 ? 'metric-accuracy good' : 'metric-accuracy caution'}>{predictionAccuracy == null ? 'Chờ đóng lệnh' : `${predictionAccuracy.toFixed(1)}%`}</strong></div>
+                                                                                <div><small>Độ khớp dự báo</small><strong className={predictionAccuracy == null ? '' : predictionAccuracy >= 60 ? 'metric-accuracy good' : 'metric-accuracy caution'}>{predictionAccuracy == null ? 'Chờ đóng lệnh' : `${predictionAccuracy.toFixed(1)}%`}</strong></div>
                                                                             </div>
                                                                         </section>
                                                                         <section className="investment-ai-analysis">
                                                                             <span className="investment-detail-eyebrow"><BrainCircuit size={14} /> Phân tích của AI</span>
                                                                             <p>{getFormattedAdvice(inv.ai_advice)}</p>
-                                                                            <small>Độ tin cậy thể hiện mức chắc chắn lúc dự báo; độ chính xác chỉ được tính sau khi lệnh đã đóng và có kết quả thực tế.</small>
+                                                                            <small>Độ tin cậy thể hiện mức chắc chắn lúc dự báo; độ khớp dự báo đánh giá cả chiều tăng/giảm và mức độ gần nhau giữa biến động dự kiến với thực tế.</small>
                                                                         </section>
                                                                     </div>
                                                                 </td>

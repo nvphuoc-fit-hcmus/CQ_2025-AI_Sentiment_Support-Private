@@ -177,6 +177,9 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       KAFKA_BROKERS: kafka:9092
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-Aegis}
     depends_on:
       postgres:
         condition: service_healthy
@@ -359,9 +362,7 @@ services:
     volumes:
       - ./services/ai-service:/app
       - ./ml_models:/app/models
-      - type: bind
-        source: "D:/Khóa luận - Trading AI/CQ_2025-AI_Sentiment_Support-Private/services/ai-service/artifacts"
-        target: /app/artifacts
+      - ./services/ai-service/artifacts:/app/artifacts
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:8002/health || exit 1" ]
       interval: 10s
@@ -393,55 +394,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  payment-service:
-    build:
-      context: ./services/payment-service
-    environment:
-      KAFKA_BROKERS: kafka:9092
-      PORT: 3000
-      SEPAY_API_KEY: "${SEPAY_API_KEY}"
-      DATABASE_URL: postgresql://payment_user:payment_password@payment-db:5432/payment_db
-    # SECURITY: No port exposure - only accessible via Kong Gateway
-    # ports:
-    #   - "8004:3000"
-    depends_on:
-      kafka:
-        condition: service_healthy
-      payment-db:
-        condition: service_healthy
-    volumes:
-      - ./services/payment-service:/app
-      - /app/node_modules
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - internal
-      - default
-
-  payment-db:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: payment_user
-      POSTGRES_PASSWORD: payment_password
-      POSTGRES_DB: payment_db
-    ports:
-      - "5435:5432"
-    volumes:
-      - payment_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U payment_user -d payment_db" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   investment-service:
     build:
@@ -524,6 +476,9 @@ services:
       POSTGRES_HOST: notification-db
       AUTH_DATABASE_URL: postgresql://dev:dev@postgres:5432/appdb
       KAFKA_BROKERS: kafka:9092
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-Aegis}
       FE_URL: http://localhost:5173
     depends_on:
       notification-db:
@@ -543,8 +498,6 @@ volumes:
   tsdata:
     driver: local
   redisdata:
-    driver: local
-  payment_pgdata:
     driver: local
   mongo_crawler_data:
     driver: local

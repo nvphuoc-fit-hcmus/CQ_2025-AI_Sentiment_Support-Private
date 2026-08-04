@@ -45,10 +45,19 @@ def _default_policy(symbol: str, horizon: str) -> dict[str, Any]:
 def _policy_candidate_paths(symbol: str, horizon: str, artifact_dir: Path | None = None) -> list[Path]:
     sym = symbol.lower()
     artifact_dir = artifact_dir or ARTIFACT_DIR
-    return [
+    candidates = [
         artifact_dir / f"safe_alert_{sym}_{horizon}_policy.json",
         artifact_dir / f"safe_alert_policy_{sym}_{horizon}.json",
     ]
+    # Historical 1h training runs wrote deployment policies directly under
+    # artifacts/, while newer runs use artifacts/v2/. Accept both layouts so
+    # production never silently falls back to unrelated default thresholds.
+    if artifact_dir.name == "v2":
+        candidates.extend([
+            artifact_dir.parent / f"safe_alert_{sym}_{horizon}_policy.json",
+            artifact_dir.parent / f"safe_alert_policy_{sym}_{horizon}.json",
+        ])
+    return candidates
 
 
 def load_safe_alert_policy(symbol: str, horizon: str) -> dict:
@@ -72,6 +81,27 @@ def load_safe_alert_policy(symbol: str, horizon: str) -> dict:
             return policy
         except Exception as e:
             logger.error("Failed to load policy %s: %s", policy_path, e)
+
+    # Demo transfer mode: thresholds were calibrated on BTC. Keep that policy
+    # explicit instead of silently using unrelated hard-coded defaults.
+    if symbol.upper() != "BTCUSDT":
+        for policy_path in _policy_candidate_paths("BTCUSDT", horizon):
+            if not policy_path.exists():
+                continue
+            try:
+                with open(policy_path, "r", encoding="utf-8") as f:
+                    policy = json.load(f)
+                policy = dict(policy)
+                policy["symbol"] = symbol.upper()
+                policy["source"] = "btc_transfer_demo"
+                policy["calibrated_on"] = "BTCUSDT"
+                logger.warning(
+                    "Using BTC transfer-demo policy for %s/%s from %s",
+                    symbol, horizon, policy_path,
+                )
+                return policy
+            except Exception as e:
+                logger.error("Failed to load BTC transfer policy %s: %s", policy_path, e)
 
     logger.warning("Policy file not found for %s/%s. Using defaults: %s", symbol, horizon, default_policy)
     return default_policy
