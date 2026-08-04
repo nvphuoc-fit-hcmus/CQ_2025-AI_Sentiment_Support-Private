@@ -10,10 +10,28 @@ import {
     calculateMACD, calculateOBV, calculateRSI, calculateSMA,
     calculateStochastic, calculateSupertrend, calculateVWAP,
 } from '../utils/technicalIndicators';
-import { ChartCandlestick, ChartLine, Check, SlidersHorizontal } from 'lucide-react';
+import { ChartCandlestick, ChartLine, Check, Maximize2, Newspaper, SlidersHorizontal } from 'lucide-react';
 import ChartDrawingOverlay from './ChartDrawingOverlay';
 
 const LOWER_INDICATORS = ['rsi', 'macd', 'stochastic', 'atr', 'adx', 'obv'];
+
+const chartTimestampToDate = (time) => {
+    if (typeof time === 'number') return new Date(time * 1000);
+    if (time && typeof time === 'object' && 'year' in time) {
+        return new Date(Date.UTC(time.year, (time.month || 1) - 1, time.day || 1));
+    }
+    return new Date(time);
+};
+
+const formatVietnamChartTime = (time, tickMarkType = 3) => {
+    const date = chartTimestampToDate(time);
+    if (Number.isNaN(date.getTime())) return '';
+    const dateOnly = tickMarkType <= 2;
+    return new Intl.DateTimeFormat('vi-VN', dateOnly
+        ? { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: tickMarkType === 0 ? 'numeric' : undefined }
+        : { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hour12: false }
+    ).format(date);
+};
 
 export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTime, onCrosshairSync, drawingTool = 'crosshair' }) {
     const chartContainerRef = useRef();
@@ -146,6 +164,15 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                 timeVisible: true,
                 secondsVisible: false,
                 borderColor: chartColors.borderColor,
+                tickMarkFormatter: formatVietnamChartTime,
+            },
+            localization: {
+                locale: 'vi-VN',
+                timeFormatter: (time) => new Intl.DateTimeFormat('vi-VN', {
+                    timeZone: 'Asia/Ho_Chi_Minh',
+                    day: '2-digit', month: '2-digit', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: false,
+                }).format(chartTimestampToDate(time)),
             },
             rightPriceScale: {
                 borderColor: chartColors.borderColor,
@@ -397,18 +424,26 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
             }
         });
 
-        // Add click event listener for opening news modal
-        const handleChartClick = (e) => {
-            const hoveredNews = hoveredNewsRef.current;
+        // Open the closest news marker on click/tap. This does not depend on a
+        // prior mouse hover, so it also works reliably on touch devices.
+        const handleChartClick = (param) => {
+            if (!param?.time || newsMapRef.current.size === 0) return;
 
-            if (hoveredNews) {
-                console.log('[Chart Click] Opening modal for news:', hoveredNews.title);
-                setSelectedNews(hoveredNews);
+            const clickedTime = typeof param.time === 'number'
+                ? param.time
+                : Math.floor(param.time);
+            // Markers are snapped to an existing candle, so a marker click has
+            // exactly the candle timestamp exposed by Lightweight Charts.
+            const clickedNews = newsMapRef.current.get(clickedTime);
+
+            if (clickedNews) {
+                console.log('[Chart Click] Opening modal for news:', clickedNews.title);
+                setSelectedNews(clickedNews);
                 setNewsModalOpen(true);
             }
         };
 
-        chartContainerRef.current.addEventListener('click', handleChartClick);
+        chart.subscribeClick(handleChartClick);
 
         const handleResize = () => {
             if (chartRef.current && chartContainerRef.current) {
@@ -423,9 +458,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
 
         return () => {
             window.removeEventListener('resize', handleResize);
-            if (chartContainerRef.current) {
-                chartContainerRef.current.removeEventListener('click', handleChartClick);
-            }
+            chart.unsubscribeClick(handleChartClick);
             if (socketRef.current) {
                 socketRef.current.disconnect();
             }
@@ -823,7 +856,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
         }
 
         // Connect to Socket.IO gateway via Kong with JWT token
-        const socket = io('http://localhost:8000', {
+        const socket = io(import.meta.env.VITE_WS_URL || window.location.origin, {
             path: '/stream-api/socket.io',
             transports: ['websocket'],
             reconnection: true,
@@ -959,7 +992,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                 </div>
             )}
             {/* Indicator Controls */}
-            <div style={{
+            <div className="chart-control-dock" style={{
                 position: 'absolute',
                 top: 12,
                 right: 12,
@@ -1001,7 +1034,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                         onClick={toggleIndicatorMenu}
                     >
                         <SlidersHorizontal size={13} />
-                        Chỉ báo
+                        <span className="chart-control-label">Chỉ báo</span>
                         {Object.values(indicators).filter(Boolean).length > 0 && (
                             <span className="chart-indicator-count">
                                 {Object.values(indicators).filter(Boolean).length}
@@ -1080,6 +1113,7 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                     ), document.body)}
                 </div>
                 <button
+                    className="chart-news-toggle"
                     onClick={() => setShowNews(!showNews)}
                     style={{
                         padding: '4px 8px',
@@ -1093,12 +1127,14 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                         transition: 'all 0.2s'
                     }}
                 >
-                    📰 News{showNews ? ` (${visibleNewsCount})` : ''}
+                    <Newspaper size={13} />
+                    <span className="chart-control-label">Tin tức{showNews ? ` (${visibleNewsCount})` : ''}</span>
                 </button>
 
                 {/* Only show expand button if not already expanded */}
                 {!chartId.includes('-expanded') && (
                     <button
+                        className="chart-expand-toggle"
                         onClick={() => setIsExpanded(true)}
                         style={{
                             padding: '4px 8px',
@@ -1118,7 +1154,8 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                             e.target.style.backgroundColor = isDark ? 'rgba(33, 150, 243, 0.2)' : 'rgba(33, 150, 243, 0.3)';
                         }}
                     >
-                        ⛶ Mở rộng
+                        <Maximize2 size={13} />
+                        <span className="chart-control-label">Mở rộng</span>
                     </button>
                 )}
             </div>
@@ -1292,12 +1329,72 @@ export default function MultiTimeframeChart({ symbol, timeframe, chartId, syncTi
                         {/* Modal Content */}
                         <div style={{ padding: '32px' }}>
                             {(() => {
-                                // Use raw_score if available, otherwise use root level
-                                const newsDetail = selectedNews.raw_score || selectedNews;
-                                const sentimentScore = newsDetail.sentiment_score || 0;
+                                // Some records use raw_score as a number; only
+                                // treat it as the detail object when it actually is one.
+                                const newsDetail = selectedNews.raw_score
+                                    && typeof selectedNews.raw_score === 'object'
+                                    ? selectedNews.raw_score
+                                    : selectedNews;
+                                const sentimentLabel = String(
+                                    newsDetail.sentiment_label
+                                    || newsDetail.sentiment
+                                    || ''
+                                ).toLowerCase();
+                                const numericSentiment = Number(
+                                    newsDetail.sentiment_score
+                                    ?? newsDetail.score
+                                    ?? newsDetail.raw_score
+                                );
+                                const sentimentScore = Number.isFinite(numericSentiment)
+                                    ? numericSentiment
+                                    : (sentimentLabel.includes('positive') || sentimentLabel.includes('tích cực')
+                                        ? 1
+                                        : (sentimentLabel.includes('negative') || sentimentLabel.includes('tiêu cực') ? -1 : 0));
 
                                 return (
                                     <>
+                                        {Array.isArray(selectedNews.relatedNews) && selectedNews.relatedNews.length > 1 && (
+                                            <div style={{
+                                                marginBottom: '18px',
+                                                padding: '12px',
+                                                borderRadius: '10px',
+                                                background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.05)',
+                                                border: `1px solid ${isDark ? 'rgba(255,255,255,0.09)' : 'rgba(15,23,42,0.1)'}`
+                                            }}>
+                                                <div style={{ fontSize: '12px', fontWeight: 700, marginBottom: '9px', opacity: 0.75 }}>
+                                                    {selectedNews.relatedNews.length} tin trong cùng thời điểm
+                                                </div>
+                                                <div style={{ display: 'grid', gap: '6px' }}>
+                                                    {selectedNews.relatedNews.slice(0, 8).map((article, index) => (
+                                                        <button
+                                                            key={article.id || article.url || `${article.title}-${index}`}
+                                                            type="button"
+                                                            onClick={() => setSelectedNews({
+                                                                ...article,
+                                                                relatedNews: selectedNews.relatedNews,
+                                                                newsCount: selectedNews.relatedNews.length
+                                                            })}
+                                                            style={{
+                                                                width: '100%',
+                                                                padding: '9px 10px',
+                                                                borderRadius: '7px',
+                                                                border: '1px solid transparent',
+                                                                textAlign: 'left',
+                                                                cursor: 'pointer',
+                                                                color: isDark ? '#e5e7eb' : '#172033',
+                                                                background: article === newsDetail
+                                                                    ? 'rgba(47,107,255,0.18)'
+                                                                    : (isDark ? 'rgba(255,255,255,0.045)' : '#fff')
+                                                            }}
+                                                        >
+                                                            <span style={{ opacity: 0.55, marginRight: '7px' }}>{index + 1}</span>
+                                                            {article.title || 'Tin tức không có tiêu đề'}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {/* Sentiment Badge */}
                                         <div style={{ marginBottom: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                             <span style={{

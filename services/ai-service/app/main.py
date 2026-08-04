@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from threading import Thread
+from threading import Lock, Thread
 from app.market_cache import start_market_cache_thread
 
 # V1 modules (optional — may not be present in all deployments)
@@ -51,8 +51,16 @@ except ImportError:
 
 logger = logging.getLogger("ai-service")
 
-SUPPORTED_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+SUPPORTED_SYMBOLS = [
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "POLUSDT",
+]
+# Running FinBERT + two horizons for every demo coin would keep the small CPU
+# server busy for tens of minutes. BTC remains scheduled; other coins run on
+# demand from the coin currently selected in the UI.
+SCHEDULED_SYMBOLS = ["BTCUSDT"]
 _EXPLANATION_CACHE = {}
+_V2_INFERENCE_LOCK = Lock()
 app = FastAPI(title="AI Service — SAFE-Alert v2")
 
 
@@ -366,10 +374,10 @@ def _v2_result_to_kafka_payload(sym: str, result: dict) -> dict:
     }
 
 
-def _run_v2_inference_all():
+def _run_v2_inference_all_impl():
     """Scheduled job: run live inference for all supported symbols."""
     from app.v2.pipelines.live_infer import run_live_inference
-    for sym in SUPPORTED_SYMBOLS:
+    for sym in SCHEDULED_SYMBOLS:
         try:
             result = run_live_inference(sym)
             alert  = result.get("alert", {})
@@ -400,6 +408,43 @@ def _run_v2_inference_all():
                 )
         except Exception as e:
             logger.warning("[v2-scheduler] %s failed: %s", sym, e)
+
+
+def _run_v2_inference_all():
+    if not _V2_INFERENCE_LOCK.acquire(blocking=False):
+        logger.info("[v2-scheduler] inference already running; skipped duplicate job")
+        return
+    try:
+        _run_v2_inference_all_impl()
+    finally:
+        _V2_INFERENCE_LOCK.release()
+
+
+def _run_v2_inference_one_impl(symbol: str):
+    """Refresh one symbol for the manual UI action."""
+    from app.v2.pipelines.live_infer import run_live_inference
+    sym = symbol.upper()
+    try:
+        result = run_live_inference(sym)
+        if _HAS_KAFKA_PRODUCER:
+            try:
+                from app.kafka_producer import publish_insight
+                publish_insight(_v2_result_to_kafka_payload(sym, result))
+            except Exception as publish_error:
+                logger.warning("[v2-manual] %s Kafka publish failed: %s", sym, publish_error)
+        logger.info("[v2-manual] %s cache refreshed", sym)
+    except Exception as e:
+        logger.warning("[v2-manual] %s failed: %s", sym, e)
+
+
+def _run_v2_inference_one(symbol: str):
+    if not _V2_INFERENCE_LOCK.acquire(blocking=False):
+        logger.info("[v2-manual] inference already running; skipped duplicate click")
+        return
+    try:
+        _run_v2_inference_one_impl(symbol)
+    finally:
+        _V2_INFERENCE_LOCK.release()
 
 
 def _start_v2_scheduler():
@@ -492,14 +537,25 @@ def v2_signal_cached(symbol: str):
 
 
 @app.post("/v2/signal/run-now")
-def v2_run_now():
+def v2_run_now(symbol: str = "BTCUSDT"):
     """
-    SAFE-Alert v2: Manually trigger inference for all supported symbols immediately.
+    SAFE-Alert v2: Manually trigger inference for one selected demo coin.
     Runs in background thread — returns immediately.
     """
-    t = Thread(target=_run_v2_inference_all, daemon=True)
+    sym = symbol.upper()
+    if sym not in SUPPORTED_SYMBOLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Symbol '{sym}' not supported. Choose from: {SUPPORTED_SYMBOLS}",
+        )
+    if _V2_INFERENCE_LOCK.locked():
+        raise HTTPException(
+            status_code=409,
+            detail="Một coin khác đang được phân tích. Vui lòng chờ lượt hiện tại hoàn tất.",
+        )
+    t = Thread(target=_run_v2_inference_one, args=(sym,), daemon=True)
     t.start()
-    return {"status": "ok", "message": f"Inference triggered for {SUPPORTED_SYMBOLS}"}
+    return {"status": "ok", "message": f"Inference triggered for {sym}", "symbol": sym}
 
 
 @app.get('/predictions/latest')

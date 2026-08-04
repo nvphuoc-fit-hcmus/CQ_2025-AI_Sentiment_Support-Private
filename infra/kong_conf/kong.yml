@@ -89,24 +89,6 @@ services:
           claims_to_verify: ["exp"]
           uri_param_names: ["token"]
 
-  - name: payment-service
-    url: "http://payment-service:3000"
-    routes:
-      - name: payment-api-route
-        paths: ["/payment-api"]
-        strip_path: true
-    plugins:
-      - name: jwt
-        config:
-          claims_to_verify: ["exp"]
-
-  - name: payment-service-public
-    url: "http://payment-service:3000"
-    routes:
-      - name: payment-webhook-route
-        paths: ["/payment-webhook"]
-        strip_path: true
-
   - name: backtest-service
     url: "http://backtest-service:8005"
     routes:

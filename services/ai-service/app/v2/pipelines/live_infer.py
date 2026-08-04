@@ -594,7 +594,19 @@ def build_live_feature_df(symbol: str, news_df: pd.DataFrame | None = None) -> t
 
     # ── 2. Market features ─────────────────────────────────────
     # build_market_features drops NaN rows, returns clean DataFrame
-    df = build_market_features(df, add_lags=True)
+    # Live data can contain a flat indicator window (for example StochRSI when
+    # RSI is constant). Dropping on *every* engineered column can therefore
+    # remove all otherwise valid candles and make manual refresh appear stuck.
+    # Keep the rows, forward-fill from past candles only, and use neutral values
+    # for indicators that remain undefined. Training keeps the strict default.
+    df = build_market_features(df, add_lags=True, drop_incomplete=False)
+    df = df.replace([np.inf, -np.inf], np.nan).ffill()
+    neutral_values = {
+        "rsi_14": 50.0,
+        "stoch_rsi": 0.5,
+        "bb_pos": 0.5,
+    }
+    df = df.fillna(value=neutral_values).fillna(0.0)
     if df.empty:
         raise ValueError("build_market_features() returned empty DataFrame.")
 
@@ -649,8 +661,16 @@ def build_live_feature_df(symbol: str, news_df: pd.DataFrame | None = None) -> t
     # ── 7. Inject multiframe features if available (Eq.16-19) ────
     if use_multiframe and mkt_features_1m is not None:
         if "market_features_63d" not in df.columns:
-            df["market_features_63d"] = None
-        df.iloc[-1, df.columns.get_loc("market_features_63d")] = mkt_features_1m
+            # Object dtype is required because each cell stores one complete
+            # 63-dimensional NumPy vector.
+            df["market_features_63d"] = pd.Series(
+                [None] * len(df), index=df.index, dtype="object"
+            )
+        # Scalar object assignment prevents pandas from interpreting the
+        # vector as values to broadcast across multiple columns.
+        df.at[df.index[-1], "market_features_63d"] = np.asarray(
+            mkt_features_1m, dtype=np.float32
+        ).reshape(-1)
         print(f"[build_live_feature_df] Injected TRUE 5-TIMEFRAME market features")
     else:
         print(f"[build_live_feature_df] Using PSEUDO-TIMEFRAME mode (1h data for all 5 encoders)")
@@ -669,7 +689,9 @@ def _load_safe_alert_net(symbol: str, horizon: str):
     Falls back to 1h model if horizon-specific model not found.
     Returns model or None if checkpoint not found.
     """
-    key = (symbol.lower(), horizon)
+    # All non-BTC demo symbols share the same transferred BTC weights. Cache
+    # one model instance per horizon instead of loading ten identical copies.
+    key = ("btcusdt" if symbol.upper() != "BTCUSDT" else symbol.lower(), horizon)
     if key in _SAFE_ALERT_MODELS:
         return _SAFE_ALERT_MODELS[key]
 
@@ -685,6 +707,14 @@ def _load_safe_alert_net(symbol: str, horizon: str):
                 key=lambda x: int(x.stem.split("epoch")[-1]), reverse=True),
         ARTIFACT_DIR / f"safe_alert_{sym}_{horizon}.pt",
     ]
+
+    # Demo transfer mode for coins without their own trained checkpoint.
+    # Candidate-specific artifacts still take precedence.
+    if symbol.upper() != "BTCUSDT":
+        candidate_paths.extend([
+            ARTIFACT_DIR / f"safe_alert_btcusdt_{horizon}_FINAL.pt",
+            ARTIFACT_DIR / f"safe_alert_btcusdt_{horizon}.pt",
+        ])
 
     ckpt_path = None
     for p in candidate_paths:
@@ -716,25 +746,40 @@ def _load_safe_alert_net(symbol: str, horizon: str):
     try:
         import torch
         from models.safe_alert_net import SAFEAlertNet, FACTOR_CLASSES as _FCL
-        print(f"[live_infer] Creating SAFEAlertNet (market_dim={_SAFE_ALERT_MARKET_DIM}, "
-              f"K_15m=3, K_1h=4, K_4h=5, K_24h=8)...")
-        # Session 26: explicit K_24h=8 + n_factors to protect against default
-        # drift. Loading checkpoint afterwards will verify state_dict shapes.
-        model = SAFEAlertNet(
-            market_dim=_SAFE_ALERT_MARKET_DIM, has_news=True,
-            K_15m=3, K_1h=4, K_4h=5, K_24h=8,
-            n_factors=_FCL,
-        )
-        print(f"[live_infer] Loading state dict from {ckpt_path.name}...")
+        # Read the checkpoint before constructing the network.  Walk-forward
+        # artifacts may have been trained with the scalar, bar, or hybrid
+        # market encoder; constructing the default scalar network and relying
+        # on strict=False silently leaves large parts of the model random.
         checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-
-        # Handle nested checkpoint format (extract model_state if present)
         if isinstance(checkpoint, dict) and "model_state" in checkpoint:
             state = checkpoint["model_state"]
             print(f"[INFO] Extracted model_state from checkpoint ({len(state)} keys)")
         else:
             state = checkpoint
             print(f"[INFO] Using checkpoint directly ({len(state)} keys)")
+
+        state_keys = tuple(state.keys())
+        if any(k.startswith("market_enc.scalar_encoders.") for k in state_keys):
+            market_input_mode = "hybrid"
+        elif any(k.startswith("market_enc.encoders.0.net.") for k in state_keys):
+            market_input_mode = "bar"
+        else:
+            market_input_mode = "scalar"
+        bar_seq_len = int(checkpoint.get("bar_seq_len", 20)) if isinstance(checkpoint, dict) else 20
+        bar_feat_dim = int(checkpoint.get("bar_feat_dim", 10)) if isinstance(checkpoint, dict) else 10
+        print(f"[live_infer] Creating SAFEAlertNet (market_dim={_SAFE_ALERT_MARKET_DIM}, "
+              f"K_15m=3, K_1h=4, K_4h=5, K_24h=8, market_input_mode={market_input_mode})...")
+        # Session 26: explicit K_24h=8 + n_factors to protect against default
+        # drift. Loading checkpoint afterwards will verify state_dict shapes.
+        model = SAFEAlertNet(
+            market_dim=_SAFE_ALERT_MARKET_DIM, has_news=True,
+            K_15m=3, K_1h=4, K_4h=5, K_24h=8,
+            n_factors=_FCL,
+            market_input_mode=market_input_mode,
+            bar_seq_len=bar_seq_len,
+            bar_feat_dim=bar_feat_dim,
+        )
+        print(f"[live_infer] Loading state dict from {ckpt_path.name}...")
 
         # strict=False keeps live inference tolerant to checkpoint schema drift.
         _result = model.load_state_dict(state, strict=False)
@@ -1164,7 +1209,7 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
             "factors_text":  san_1h_raw.get("factors_text", ""),
             "explanation":   san_1h_raw.get("nl_explanation", ""),
             "should_alert":  san_1h_raw.get("should_alert", False),
-            "model_used":    "SAFEAlertNet",
+            "model_used":    "SAFEAlertNet" if symbol.upper() == "BTCUSDT" else "SAFEAlertNet · BTC transfer demo",
             "horizon":       "1h",
         }
     else:
@@ -1206,7 +1251,7 @@ def run_live_inference(symbol: str, news_df: pd.DataFrame | None = None) -> dict
             "factors_text":  san_4h_raw.get("factors_text", ""),
             "explanation":   san_4h_raw.get("nl_explanation", ""),
             "should_alert":  san_4h_raw.get("should_alert", False),
-            "model_used":    "SAFEAlertNet",
+            "model_used":    "SAFEAlertNet" if symbol.upper() == "BTCUSDT" else "SAFEAlertNet · BTC transfer demo",
             "horizon":       "4h",
         }
     else:

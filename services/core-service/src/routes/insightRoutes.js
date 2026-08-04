@@ -1,13 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { getInsights, getLatestPrediction } = require('../controllers/InsightsController');
-const { requireVIP } = require('../middleware/authMiddleware');
 
-// Protect this route with VIP middleware
-router.get('/', requireVIP, getInsights);
+router.get('/', getInsights);
 
 // Get latest prediction for a specific symbol
-router.get('/latest/:symbol', requireVIP, getLatestPrediction);
+router.get('/latest/:symbol', getLatestPrediction);
 
 // Internal route for other microservices (no auth)
 router.get('/internal', getInsights);

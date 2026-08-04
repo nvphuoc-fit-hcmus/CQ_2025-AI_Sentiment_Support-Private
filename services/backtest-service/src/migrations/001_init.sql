@@ -45,7 +45,9 @@ CREATE TABLE IF NOT EXISTS backtest_results (
     
     -- Execution Info
     execution_time_ms INTEGER,
-    data_points_analyzed INTEGER
+    data_points_analyzed INTEGER,
+    news_count INTEGER DEFAULT 0,
+    news_timeline JSONB DEFAULT '[]'::jsonb
 );
 
 -- Indexes

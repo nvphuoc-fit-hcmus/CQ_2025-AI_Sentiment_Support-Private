@@ -1,0 +1,95 @@
+services:
+  kafka:
+    ports: !override
+      - "127.0.0.1:9092:9092"
+  postgres:
+    ports: !override
+      - "127.0.0.1:5432:5432"
+  timescaledb:
+    ports: !override
+      - "127.0.0.1:5433:5432"
+  redis:
+    ports: !override
+      - "127.0.0.1:6379:6379"
+  backtest-db:
+    ports: !override
+      - "127.0.0.1:5434:5432"
+  haproxy:
+    ports: !override
+      - "127.0.0.1:8005:8005"
+      - "127.0.0.1:8404:8404"
+  kong:
+    ports: !override
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8001:8001"
+  mongo-crawler:
+    ports: !override
+      - "127.0.0.1:27017:27017"
+  ai-service:
+    ports: !override
+      - "127.0.0.1:8002:8002"
+  investment-db:
+    ports: !override
+      - "127.0.0.1:5435:5432"
+  notification-db:
+    ports: !override
+      - "127.0.0.1:5436:5432"
+  notification-service:
+    environment:
+      FE_URL: "https://aegis-trading.duckdns.org"
+
+  core-service:
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  crawler-service:
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  web-frontend:
+    build:
+      context: ./web-frontend
+      dockerfile: Dockerfile.production
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      kong:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web-frontend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

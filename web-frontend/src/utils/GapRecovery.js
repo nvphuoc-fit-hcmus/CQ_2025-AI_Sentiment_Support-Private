@@ -26,7 +26,7 @@ class GapRecovery {
             }
 
             // Determine API base URL
-            const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+            const apiBase = import.meta.env.VITE_API_URL || window.location.origin;
             const url = `${apiBase}/api/v1/klines/missed?symbol=${symbol}&fromSeq=${fromSeq}&toSeq=${toSeq}`;
 
             const response = await fetch(url, {

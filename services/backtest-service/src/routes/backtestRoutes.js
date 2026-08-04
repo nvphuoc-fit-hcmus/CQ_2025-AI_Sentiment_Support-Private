@@ -304,12 +304,15 @@ router.post('/run', requireAuth, async (req, res) => {
             });
 
             const newsQuery = `
-              SELECT time, sentiment_score, title
+              SELECT time, sentiment_score, title, url, raw_score
               FROM news_sentiment
               WHERE time >= $1 AND time <= $2
                 AND (
                   raw_score->'symbols' ? $3
                   OR raw_score->'symbols' ? 'ALL'
+                  OR raw_score->'coins' ? $3
+                  OR raw_score->>'tag' ILIKE '%' || $3 || '%'
+                  OR raw_score->>'origin' = 'articles_max.csv'
                   OR raw_score IS NULL
                 )
               ORDER BY time ASC
@@ -343,6 +346,43 @@ router.post('/run', requireAuth, async (req, res) => {
             return res.status(400).json({ error: results.error });
         }
 
+        const timeframeMs = {
+            '15m': 15 * 60 * 1000, '30m': 30 * 60 * 1000,
+            '1h': 60 * 60 * 1000, '4h': 4 * 60 * 60 * 1000,
+            '12h': 12 * 60 * 60 * 1000, '1d': 24 * 60 * 60 * 1000,
+            '1w': 7 * 24 * 60 * 60 * 1000,
+        };
+        const bucketMs = timeframeMs[timeframe] || timeframeMs['1h'];
+        const newsBuckets = new Map();
+        for (const item of newsData) {
+            const itemTime = new Date(item.time).getTime();
+            if (!Number.isFinite(itemTime)) continue;
+            const bucketTime = Math.floor(itemTime / bucketMs) * bucketMs;
+            if (!newsBuckets.has(bucketTime)) {
+                newsBuckets.set(bucketTime, {
+                    time: new Date(bucketTime).toISOString(),
+                    count: 0, sentiment_sum: 0, articles: [],
+                });
+            }
+            const bucket = newsBuckets.get(bucketTime);
+            bucket.count += 1;
+            bucket.sentiment_sum += Number(item.sentiment_score || 0);
+            if (bucket.articles.length < 5) {
+                bucket.articles.push({
+                    title: item.title, url: item.url,
+                    sentiment_score: Number(item.sentiment_score || 0),
+                    content: item.raw_score?.content || item.raw_score?.summary || '',
+                });
+            }
+        }
+        results.news_count = newsData.length;
+        results.news_timeline = [...newsBuckets.values()].map(bucket => ({
+            time: bucket.time,
+            count: bucket.count,
+            average_sentiment: bucket.count ? bucket.sentiment_sum / bucket.count : 0,
+            articles: bucket.articles,
+        })).sort((a, b) => new Date(a.time) - new Date(b.time));
+
         // --- 4. SAVE RESULTS ---
         const insertQuery = `
               INSERT INTO backtest_results (
@@ -350,13 +390,14 @@ router.post('/run', requireAuth, async (req, res) => {
                 total_trades, winning_trades, losing_trades, win_rate, 
                 total_profit, total_loss, net_profit, net_profit_percent,
                 max_drawdown, sharpe_ratio, 
-                trades, equity_curve, execution_time_ms, data_points_analyzed
+                trades, equity_curve, execution_time_ms, data_points_analyzed,
+                news_count, news_timeline
               ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8, $9, $10, $11,
                 $12, $13, $14, $15,
                 $16, $17,
-                $18, $19, $20, $21
+                $18, $19, $20, $21, $22, $23
               ) RETURNING id
             `;
 
@@ -381,7 +422,9 @@ router.post('/run', requireAuth, async (req, res) => {
             JSON.stringify(results.trades),
             JSON.stringify(results.equity_curve),
             results.execution_time_ms,
-            results.data_points_analyzed
+            results.data_points_analyzed,
+            results.news_count,
+            JSON.stringify(results.news_timeline)
         ]);
 
         console.log(`[BACKTEST] Completed successfully. ID: ${saved.rows[0].id}`);

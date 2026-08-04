@@ -2,6 +2,19 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createChart } from 'lightweight-charts';
 import useStore from '../store';
 
+const chartTimestampToDate = (time) => typeof time === 'number'
+  ? new Date(time * 1000)
+  : new Date(Date.UTC(time.year, (time.month || 1) - 1, time.day || 1));
+
+const formatVietnamChartTime = (time, tickMarkType = 3) => {
+  const date = chartTimestampToDate(time);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('vi-VN', tickMarkType <= 2
+    ? { timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: tickMarkType === 0 ? 'numeric' : undefined }
+    : { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hour12: false }
+  ).format(date);
+};
+
 export default function Chart() {
   const chartContainerRef = useRef();
   const legendRef = useRef();
@@ -48,6 +61,14 @@ export default function Chart() {
         barSpacing: 10,
         minBarSpacing: 3,
         borderColor: '#2B2B43',
+        tickMarkFormatter: formatVietnamChartTime,
+      },
+      localization: {
+        locale: 'vi-VN',
+        timeFormatter: (time) => new Intl.DateTimeFormat('vi-VN', {
+          timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: false,
+        }).format(chartTimestampToDate(time)),
       },
       rightPriceScale: {
         borderColor: '#2B2B43',

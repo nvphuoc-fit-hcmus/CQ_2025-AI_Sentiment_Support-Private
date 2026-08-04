@@ -203,7 +203,7 @@ export default function Watchlist() {
   useEffect(() => {
     if (!token) return;
 
-    const wsBase = import.meta.env.VITE_WS_URL || 'http://localhost:8000';
+    const wsBase = import.meta.env.VITE_WS_URL || window.location.origin;
     const socketUrl = `${wsBase}?token=${encodeURIComponent(token)}`;
 
     const socket = io(socketUrl, {

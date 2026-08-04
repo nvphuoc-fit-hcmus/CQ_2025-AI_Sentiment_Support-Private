@@ -599,7 +599,11 @@ def add_btc_features(df: pd.DataFrame, btc_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_market_features(df: pd.DataFrame, add_lags: bool = True) -> pd.DataFrame:
+def build_market_features(
+    df: pd.DataFrame,
+    add_lags: bool = True,
+    drop_incomplete: bool = True,
+) -> pd.DataFrame:
     """
     Full market feature engineering pipeline.
 
@@ -623,5 +627,8 @@ def build_market_features(df: pd.DataFrame, add_lags: bool = True) -> pd.DataFra
     if add_lags:
         out = add_lag_features(out, cols=DEFAULT_LAG_COLS, lags=DEFAULT_LAGS)
 
-    out = out.dropna().reset_index(drop=True)
+    if drop_incomplete:
+        out = out.dropna().reset_index(drop=True)
+    else:
+        out = out.reset_index(drop=True)
     return out

@@ -24,6 +24,17 @@ router.post('/register', async (req, res) => {
   // basic email normalization
   const normEmail = String(email).trim().toLowerCase();
   try {
+    const existing = await pool.query(
+      'SELECT email_verified FROM users WHERE lower(email) = lower($1) LIMIT 1',
+      [normEmail]
+    );
+    if (existing.rowCount) {
+      return res.status(409).json({
+        error: 'email_exists',
+        email_verified: Boolean(existing.rows[0].email_verified),
+      });
+    }
+
     const hash = await bcrypt.hash(password, 12);
     const verificationOtp = createOtp();
     const verificationHash = hashToken(verificationOtp);
@@ -36,7 +47,21 @@ router.post('/register', async (req, res) => {
       [normEmail, hash, String(display_name || '').trim() || null, verificationHash]
     );
     const user = r.rows[0];
-    const mail = await sendVerificationEmail(normEmail, verificationOtp);
+    let mail;
+    try {
+      mail = await sendVerificationEmail(normEmail, verificationOtp);
+    } catch (mailError) {
+      console.error('[EMAIL] Verification email failed:', mailError.code || mailError.message);
+      await pool.query(
+        'DELETE FROM users WHERE id = $1 AND email_verified = false',
+        [user.id]
+      );
+      return res.status(503).json({
+        error: 'verification_email_unavailable',
+        verification_required: true,
+        message: 'Không thể gửi email xác thực lúc này. Vui lòng thử gửi lại mã OTP sau.',
+      });
+    }
     res.status(201).json({
       user,
       verification_required: true,

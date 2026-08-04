@@ -50,14 +50,13 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
     };
 
     const applySafeAlertPreset = () => {
-        setStrategyName(`SAFE-Alert 1H + 4H + News ${getDefaultStrategyName().replace('My AI Strategy ', '')}`);
+        setStrategyName(`SAFE-Alert 1H + News ${getDefaultStrategyName().replace('My AI Strategy ', '')}`);
         setLogic('AND');
         setAction('BUY');
         setTimeframe('1h');
         setConditions([
             { type: 'ai', field: 'direction_1h', operator: '=', value: 'UP' },
             { type: 'ai', field: 'confidence_1h', operator: '>=', value: 0.52 },
-            { type: 'ai', field: 'direction_4h', operator: '=', value: 'UP' },
             { type: 'news', field: 'sentiment_score', operator: '>', value: 0 },
         ]);
         setStartDate('2024-08-29');
@@ -161,7 +160,7 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
             </div>
             <button type="button" className="btn-secondary" onClick={applySafeAlertPreset}
                 style={{ width: '100%', marginBottom: 14 }}>
-                Dùng mẫu SAFE-Alert 1H + 4H + News
+                Dùng mẫu SAFE-Alert 1H + News
             </button>
 
             {/* Basic Settings */}
@@ -176,7 +175,7 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
                 />
             </div>
 
-            <div className="form-row">
+            <div className="form-row backtest-basic-row">
                 <div className="form-group">
                     <label className="form-label">Symbol</label>
                     <div style={{ display: 'flex', gap: 8 }}>
@@ -214,7 +213,7 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
                 </div>
             </div>
 
-            <div className="form-row">
+            <div className="form-row backtest-date-row">
                 <div className="form-group">
                     <label className="form-label">Start Date</label>
                     <input
@@ -237,7 +236,7 @@ export default function StrategyBuilder({ onRunBacktest, isLoading }) {
 
             {/* Risk Management */}
             <h3 className="strategy-section-title" style={{ marginTop: '16px' }}>Risk Management (Exit)</h3>
-            <div className="form-row">
+            <div className="form-row backtest-risk-row">
                 <div className="form-group">
                     <label className="form-label">Take Profit (%)</label>
                     <input

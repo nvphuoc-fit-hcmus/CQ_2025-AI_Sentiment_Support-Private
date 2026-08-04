@@ -114,8 +114,11 @@ def _start_consumer():
             pass
 
 
-_PREFETCH_SYMBOLS   = ["BTCUSDT", "ETHUSDT"]
-_PREFETCH_INTERVALS = ["1h", "1d"]   # intervals needed by V2 models
+_PREFETCH_SYMBOLS   = [
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "POLUSDT",
+]
+_PREFETCH_INTERVALS = ["1h"]   # live SAFE-Alert base interval
 _PREFETCH_LIMIT     = 250
 
 

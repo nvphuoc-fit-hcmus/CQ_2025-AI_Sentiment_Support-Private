@@ -25,7 +25,8 @@ export default function BacktestDashboard() {
                     ...data.results,
                     strategy_name: payload.strategy.name,
                     trades: typeof data.results.trades === 'string' ? JSON.parse(data.results.trades) : data.results.trades,
-                    equity_curve: typeof data.results.equity_curve === 'string' ? JSON.parse(data.results.equity_curve) : data.results.equity_curve
+                    equity_curve: typeof data.results.equity_curve === 'string' ? JSON.parse(data.results.equity_curve) : data.results.equity_curve,
+                    news_timeline: typeof data.results.news_timeline === 'string' ? JSON.parse(data.results.news_timeline) : (data.results.news_timeline || [])
                 };
                 setResults(parsedResults);
                 showToast('Backtest completed successfully!', 'success');
@@ -63,7 +64,8 @@ export default function BacktestDashboard() {
             const parsedResults = {
                 ...detail,
                 trades: typeof detail.trades === 'string' ? JSON.parse(detail.trades) : detail.trades,
-                equity_curve: typeof detail.equity_curve === 'string' ? JSON.parse(detail.equity_curve) : detail.equity_curve
+                equity_curve: typeof detail.equity_curve === 'string' ? JSON.parse(detail.equity_curve) : detail.equity_curve,
+                news_timeline: typeof detail.news_timeline === 'string' ? JSON.parse(detail.news_timeline) : (detail.news_timeline || [])
             };
 
             setResults(parsedResults);

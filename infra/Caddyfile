@@ -1,0 +1,4 @@
+aegis-trading.duckdns.org, 168-144-103-47.sslip.io {
+    encode zstd gzip
+    reverse_proxy web-frontend:80
+}

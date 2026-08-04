@@ -16,7 +16,7 @@
  * }
  */
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || window.location.origin;
 
 // Factor name translations (Vietnamese primary + English subtitle)
 export const FACTOR_LABELS = {
@@ -71,6 +71,19 @@ export const checkBackendHealth = async () => {
     console.error('Backend health check failed:', error);
     return false;
   }
+};
+
+/** Start a real inference cycle; poll the cached endpoint for completion. */
+export const triggerSAFEAlertRefresh = async (symbol = 'BTCUSDT') => {
+  const response = await fetch(`${BACKEND_URL}/v2/signal/run-now?symbol=${encodeURIComponent(symbol)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail || `HTTP ${response.status}`);
+  }
+  return await response.json();
 };
 
 export const rewriteExplanation = async (payload) => {
@@ -192,6 +205,7 @@ export const formatSignalData = (signal) => {
 export default {
   fetchSAFEAlertSignal,
   fetchSAFEAlertSignalCached,
+  triggerSAFEAlertRefresh,
   checkBackendHealth,
   rewriteExplanation,
   formatSignalData,

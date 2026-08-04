@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import MultiTimeframeChart from './MultiTimeframeChart';
 import useStore from '../store';
 
@@ -15,9 +15,14 @@ const TIMEFRAMES = [
 
 export default function TradingDashboard({ drawingTool = 'crosshair' }) {
     const { currentSymbol } = useStore();
+    const [isMobile, setIsMobile] = useState(
+        () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+    );
 
     // State cho 4 biểu đồ - mỗi biểu đồ có timeframe riêng
-    const [chart1TF, setChart1TF] = useState('1m');
+    const [chart1TF, setChart1TF] = useState(() =>
+        typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches ? '1h' : '1m'
+    );
     const [chart2TF, setChart2TF] = useState('1h');
     const [chart3TF, setChart3TF] = useState('1d');
     const [chart4TF, setChart4TF] = useState('1w');
@@ -25,6 +30,14 @@ export default function TradingDashboard({ drawingTool = 'crosshair' }) {
     // Cross-hair sync: shared logical time across all 4 charts
     const [syncTime, setSyncTime] = useState(null);
     const syncSourceRef = useRef(null); // Which chart initiated the sync
+
+    useEffect(() => {
+        const media = window.matchMedia('(max-width: 768px)');
+        const handleChange = event => setIsMobile(event.matches);
+        setIsMobile(media.matches);
+        media.addEventListener?.('change', handleChange);
+        return () => media.removeEventListener?.('change', handleChange);
+    }, []);
 
     // Cross-hair sync callback — called by each chart on crosshair move
     const handleCrosshairSync = useCallback((chartId, time) => {
@@ -44,12 +57,13 @@ export default function TradingDashboard({ drawingTool = 'crosshair' }) {
         { id: 'chart3', tf: chart3TF, setTF: setChart3TF },
         { id: 'chart4', tf: chart4TF, setTF: setChart4TF },
     ];
+    const visibleCharts = isMobile ? charts.slice(0, 1) : charts;
 
     return (
         <div className="trading-dashboard">
             {/* 4 Charts Grid */}
             <div className="charts-grid">
-                {charts.map((chart) => (
+                {visibleCharts.map((chart) => (
                     <div key={chart.id} className="chart-container">
                         <div className="chart-header">
                             <div className="chart-header-left">
